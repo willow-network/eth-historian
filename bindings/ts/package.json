@@ -1,0 +1,38 @@
+{
+  "name": "@willow-network/eth-historian",
+  "version": "0.1.0",
+  "description": "Trustless cryptographic authentication of historical Ethereum execution-layer blocks. WebAssembly bindings.",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/willow-network/eth-historian"
+  },
+  "homepage": "https://github.com/willow-network/eth-historian",
+  "keywords": [
+    "ethereum",
+    "verification",
+    "light-client",
+    "historical",
+    "portal",
+    "wasm"
+  ],
+  "author": "Willow Network contributors",
+  "main": "pkg/eth_historian_wasm.js",
+  "types": "pkg/eth_historian_wasm.d.ts",
+  "files": [
+    "pkg/"
+  ],
+  "scripts": {
+    "build": "wasm-pack build --target bundler --out-dir pkg --release",
+    "build:web": "wasm-pack build --target web --out-dir pkg-web --release",
+    "build:nodejs": "wasm-pack build --target nodejs --out-dir pkg-nodejs --release",
+    "test": "wasm-pack test --node",
+    "clean": "rm -rf pkg pkg-web pkg-nodejs target"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

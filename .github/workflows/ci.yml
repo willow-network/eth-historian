@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --all-features --workspace
+
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-features --all-targets -- -D warnings
+
+  fingerprint-check:
+    name: Canonized accumulator fingerprint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: SHA-256 of merge_macc.bin
+        run: |
+          actual=$(sha256sum src/assets/merge_macc.bin | cut -d' ' -f1)
+          expected="a2368bfa82a89a898b31dca6f37aa287918bd671bd74058912bc440c2288d791"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::merge_macc.bin SHA-256 mismatch — embedded asset altered"
+            echo "expected: $expected"
+            echo "actual:   $actual"
+            exit 1
+          fi
+      - name: SHA-256 of historical_roots.ssz
+        run: |
+          actual=$(sha256sum src/assets/historical_roots.ssz | cut -d' ' -f1)
+          expected="64ed2cbed13a65c224b471f53b5f832030c11e73710e2702121e7b1a5082a316"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::historical_roots.ssz SHA-256 mismatch — embedded asset altered"
+            echo "expected: $expected"
+            echo "actual:   $actual"
+            exit 1
+          fi

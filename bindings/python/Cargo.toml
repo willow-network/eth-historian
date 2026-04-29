@@ -1,0 +1,25 @@
+[package]
+name = "eth-historian-py"
+version = "0.1.0"
+edition = "2021"
+description = "Python bindings for eth-historian — trustless Ethereum historical block verification."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/willow-network/eth-historian"
+publish = false
+
+[lib]
+name = "eth_historian"
+crate-type = ["cdylib"]
+
+[dependencies]
+eth-historian = { path = "../..", default-features = false }
+ethportal-api = "0.12"
+ssz = { package = "ethereum_ssz", version = "0.9" }
+
+pyo3 = { version = "0.22", features = ["extension-module"] }
+pyo3-asyncio = { version = "0.21", features = ["tokio-runtime"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync"] }
+hex = "0.4"
+
+[build-dependencies]
+vergen = "~9.0"

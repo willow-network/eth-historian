@@ -1,0 +1,23 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Bindings build artifacts
+/bindings/ts/dist
+/bindings/ts/node_modules
+/bindings/ts/pkg
+/bindings/python/dist
+/bindings/python/target
+/bindings/python/.venv
+/bindings/python/__pycache__
+/bindings/python/**/__pycache__
+/bindings/python/*.egg-info
+
+# Editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Optional epoch-accumulator data (downloaded on first use, ~995 MB)
+/epoch_accs/

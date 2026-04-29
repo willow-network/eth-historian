@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "eth-historian"
+version = "0.1.0"
+description = "Trustless cryptographic authentication of historical Ethereum execution-layer blocks."
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+authors = [
+  { name = "Willow Network contributors" }
+]
+keywords = ["ethereum", "verification", "light-client", "historical", "portal"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Rust",
+  "Topic :: Security :: Cryptography",
+]
+requires-python = ">=3.9"
+
+[project.urls]
+Homepage = "https://github.com/willow-network/eth-historian"
+Repository = "https://github.com/willow-network/eth-historian"
+Documentation = "https://github.com/willow-network/eth-historian/blob/main/README.md"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "eth_historian"
+python-source = "src"
+strip = true

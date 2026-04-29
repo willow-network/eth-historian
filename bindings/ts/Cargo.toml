@@ -1,0 +1,35 @@
+[package]
+name = "eth-historian-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "WebAssembly bindings for eth-historian — trustless Ethereum historical block verification."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/willow-network/eth-historian"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Pure-verification bindings: archive-rpc / portal-sidecar features
+# require reqwest which is awkward in wasm. Apps fetch bytes their own
+# way and pass them in.
+eth-historian = { path = "../..", default-features = false }
+
+ethportal-api = "0.12"
+ssz = { package = "ethereum_ssz", version = "0.9" }
+
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+hex = "0.4"
+
+# Activate wasm-friendly tokio features (sync only — no I/O runtime in wasm).
+tokio = { version = "1", features = ["sync"] }
+
+console_error_panic_hook = "0.1"
+
+[build-dependencies]
+vergen = "~9.0"

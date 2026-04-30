@@ -12,7 +12,10 @@
 //! * Block 15,539,558 — post-merge / pre-Capella (HistoricalRoots)
 //! * Block 15,555,729 — post-merge / pre-Capella (HistoricalRoots)
 
-use eth_historian::{AuthPath, HeaderWithProof, Verifier};
+use eth_historian::{
+    proof_construction::{construct_pre_merge_proof, decode_epoch_accumulator},
+    AuthPath, BlockHeaderProof, HeaderWithProof, Verifier,
+};
 use ethportal_api::consensus::historical_summaries::HistoricalSummaries;
 use ssz::Decode;
 
@@ -27,6 +30,7 @@ const FIXTURE_DENEB_LATER: &str = include_str!("fixtures/header_with_proof_22162
 
 const HISTORICAL_SUMMARIES_SLOT_11476992: &[u8] =
     include_bytes!("fixtures/historical_summaries_at_slot_11476992.ssz");
+const EPOCH_RECORD_122: &[u8] = include_bytes!("fixtures/epoch-record-00122.ssz");
 
 fn decode_fixture(s: &str) -> Vec<u8> {
     hex::decode(s.trim().trim_start_matches("0x")).expect("fixture should be valid hex")
@@ -197,6 +201,207 @@ async fn capella_block_fails_without_historical_summaries() {
     assert!(
         result.is_err(),
         "Capella verification without HS snapshot must fail"
+    );
+}
+
+#[tokio::test]
+async fn construct_proof_round_trip() {
+    // Round-trip proof construction → verification on a real
+    // pre-merge block:
+    //
+    //   1. Decode the EpochAccumulator for epoch 122 (blocks
+    //      999,424 .. 1,007,615, ssz_root 0x5ec1ff…b4218).
+    //   2. Take the header for block 1,000,010 from a Portal
+    //      HeaderWithProof fixture (which already includes a known
+    //      valid proof; we ignore that proof and build our own).
+    //   3. Call construct_pre_merge_proof(header, &epoch_acc).
+    //   4. Wrap the constructed proof in a HeaderWithProof and feed
+    //      it to the Verifier.
+    //   5. Assert the verifier accepts it.
+    //
+    // This proves the construct→verify pipeline is consistent: a
+    // proof we generate locally validates against the same canonized
+    // accumulator the verifier checks against.
+    let epoch_acc = decode_epoch_accumulator(EPOCH_RECORD_122)
+        .expect("epoch_acc fixture should SSZ-decode");
+
+    let original_bytes = decode_fixture(FIXTURE_PRE_MERGE);
+    let original_hwp = HeaderWithProof::from_ssz_bytes(&original_bytes).unwrap();
+    let header = original_hwp.header.clone();
+
+    let constructed_proof = construct_pre_merge_proof(&header, &epoch_acc)
+        .expect("proof construction should succeed for a canonical pre-merge header");
+
+    let our_hwp = HeaderWithProof {
+        header,
+        proof: BlockHeaderProof::HistoricalHashes(constructed_proof),
+    };
+
+    let verifier = Verifier::new();
+    let verified = verifier.verify(&our_hwp).await.expect(
+        "locally-constructed proof must verify against the canonized accumulator",
+    );
+    assert_eq!(verified.header.number, 1_000_010);
+    assert_eq!(verified.auth_path, AuthPath::HistoricalHashes);
+}
+
+#[cfg(feature = "portal-sidecar")]
+mod portal_sidecar_mock_tests {
+    use super::*;
+    use eth_historian::sources::PortalSidecarSource;
+    use serde_json::json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// `verify_block_by_number(1_000_010)` against a wiremock'd Portal
+    /// sidecar that returns the real fixture bytes — proves the
+    /// JSON-RPC plumbing + content-key encoding + SSZ-decode + verify
+    /// chain all line up end-to-end against production data, without
+    /// needing a real trin process.
+    #[tokio::test]
+    async fn portal_sidecar_happy_path_verifies() {
+        let mock_server = MockServer::start().await;
+
+        let fixture_hex_no_prefix = FIXTURE_PRE_MERGE
+            .trim()
+            .trim_start_matches("0x")
+            .to_string();
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "content": format!("0x{}", fixture_hex_no_prefix),
+                    "utpTransfer": false,
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let source = PortalSidecarSource::new(mock_server.uri()).unwrap();
+        let verifier = Verifier::builder().data_source(source).build();
+
+        let verified = verifier.verify_block_by_number(1_000_010).await.unwrap();
+        assert_eq!(verified.header.number, 1_000_010);
+        assert_eq!(verified.auth_path, AuthPath::HistoricalHashes);
+    }
+
+    /// JSON-RPC error from the sidecar must propagate as
+    /// `Error::DataSource`, not panic and not silently succeed.
+    #[tokio::test]
+    async fn portal_sidecar_rpc_error_surfaces() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": { "code": -32000, "message": "content not found in DHT" }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let source = PortalSidecarSource::new(mock_server.uri()).unwrap();
+        let verifier = Verifier::builder().data_source(source).build();
+
+        let err = verifier.verify_block_by_number(10_000_835).await.unwrap_err();
+        assert!(
+            err.to_string().contains("not found"),
+            "RPC error message should be surfaced; got: {}",
+            err
+        );
+    }
+
+    /// Tampered bytes returned by the sidecar must be rejected by the
+    /// verifier — Portal is treated as a content router only, never
+    /// trusted to attest correctness.
+    #[tokio::test]
+    async fn portal_sidecar_tampered_response_rejected() {
+        let mock_server = MockServer::start().await;
+
+        let mut bytes = decode_fixture(FIXTURE_PRE_MERGE);
+        // Flip a byte deep inside the proof region (after the SSZ
+        // header, after the alloy::Header bytes — anywhere in the
+        // proof tail).
+        let len = bytes.len();
+        bytes[len - 100] ^= 0xff;
+        let tampered_hex = hex::encode(&bytes);
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": { "content": format!("0x{}", tampered_hex), "utpTransfer": false }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let source = PortalSidecarSource::new(mock_server.uri()).unwrap();
+        let verifier = Verifier::builder().data_source(source).build();
+
+        let result = verifier.verify_block_by_number(1_000_010).await;
+        assert!(
+            result.is_err(),
+            "verifier must reject tampered Portal response, got: {:?}",
+            result
+        );
+    }
+
+    /// Multi-source fallback: first source errors, second source
+    /// succeeds, verifier should return the second's result.
+    #[tokio::test]
+    async fn multi_source_fallback() {
+        let bad_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&bad_server)
+            .await;
+
+        let good_server = MockServer::start().await;
+        let fixture_hex = FIXTURE_PRE_MERGE.trim().trim_start_matches("0x").to_string();
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": { "content": format!("0x{}", fixture_hex), "utpTransfer": false }
+            })))
+            .mount(&good_server)
+            .await;
+
+        let verifier = Verifier::builder()
+            .data_source(PortalSidecarSource::new(bad_server.uri()).unwrap())
+            .data_source(PortalSidecarSource::new(good_server.uri()).unwrap())
+            .build();
+
+        let verified = verifier.verify_block_by_number(1_000_010).await.unwrap();
+        assert_eq!(verified.header.number, 1_000_010);
+    }
+}
+
+#[tokio::test]
+async fn construct_proof_rejects_wrong_epoch() {
+    // If the caller hands us an EpochAccumulator that doesn't cover
+    // the header's block number, construction must fail loudly — never
+    // silently produce an invalid proof.
+    let epoch_acc =
+        decode_epoch_accumulator(EPOCH_RECORD_122).expect("epoch_acc decode");
+
+    // Block 15,539,558 belongs to epoch 1897, not 122. The header.hash
+    // won't match epoch[122][index 1894 in the partial range], so
+    // construct_pre_merge_proof should error.
+    let bytes = decode_fixture(FIXTURE_MERGE_CAPELLA_1);
+    let hwp = HeaderWithProof::from_ssz_bytes(&bytes).unwrap();
+
+    let result = construct_pre_merge_proof(&hwp.header, &epoch_acc);
+    assert!(
+        result.is_err(),
+        "proof construction must reject a header that doesn't match the supplied epoch"
     );
 }
 

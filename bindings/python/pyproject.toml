@@ -34,6 +34,6 @@ Documentation = "https://github.com/willow-network/eth-historian/blob/main/READM
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "eth_historian"
+module-name = "eth_historian._native"
 python-source = "src"
 strip = true

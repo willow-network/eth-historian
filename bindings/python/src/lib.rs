@@ -36,7 +36,7 @@ struct PyVerifiedBlock {
 impl PyVerifiedBlock {
     fn __repr__(&self) -> String {
         format!(
-            "VerifiedBlock(block_number={}, auth_path={!r}, block_hash={!r})",
+            "VerifiedBlock(block_number={}, auth_path={:?}, block_hash={:?})",
             self.block_number, self.auth_path, self.block_hash
         )
     }
@@ -46,8 +46,8 @@ impl PyVerifiedBlock {
 /// awaitable that resolves to a `VerifiedBlock` instance, or raises
 /// `ValueError` on verification failure.
 #[pyfunction]
-fn verify_header_with_proof(py: Python<'_>, bytes: Vec<u8>) -> PyResult<&PyAny> {
-    pyo3_asyncio::tokio::future_into_py(py, async move {
+fn verify_header_with_proof<'py>(py: Python<'py>, bytes: Vec<u8>) -> PyResult<Bound<'py, PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let verifier = Verifier::new();
 
         let hwp = HeaderWithProof::from_ssz_bytes(&bytes).map_err(|e| {
@@ -76,7 +76,7 @@ fn verify_header_with_proof(py: Python<'_>, bytes: Vec<u8>) -> PyResult<&PyAny> 
 /// binaries as a dict. Useful for clients that want to double-check the
 /// installed wheel ships the constants they expect.
 #[pyfunction]
-fn canonized_fingerprints(py: Python<'_>) -> PyResult<Py<PyDict>> {
+fn canonized_fingerprints<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
     use eth_historian::constants::{HISTORICAL_ROOTS_SSZ_SHA256, MERGE_MACC_BIN_SHA256};
     let d = PyDict::new(py);
     d.set_item(
@@ -87,11 +87,11 @@ fn canonized_fingerprints(py: Python<'_>) -> PyResult<Py<PyDict>> {
         "historical_roots_ssz_sha256",
         format!("0x{}", hex::encode(HISTORICAL_ROOTS_SSZ_SHA256)),
     )?;
-    Ok(d.into())
+    Ok(d)
 }
 
 #[pymodule]
-fn eth_historian(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyVerifiedBlock>()?;
     m.add_function(wrap_pyfunction!(verify_header_with_proof, m)?)?;
     m.add_function(wrap_pyfunction!(canonized_fingerprints, m)?)?;

@@ -10,14 +10,13 @@
 //! intentionally not vendored (we only verify, not produce, proofs).
 
 use alloy::consensus::Header;
-use ethportal_api::consensus::constants::SLOTS_PER_HISTORICAL_ROOT;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum, VariableList};
 use tree_hash_derive::TreeHash;
 
-use crate::EmbeddedAssets;
+use crate::{portal_types::SLOTS_PER_HISTORICAL_ROOT, EmbeddedAssets};
 
 /// SSZ List[Hash256, max_length = MAX_HISTORICAL_EPOCHS].
 pub type HistoricalEpochRoots = VariableList<tree_hash::Hash256, typenum::U131072>;

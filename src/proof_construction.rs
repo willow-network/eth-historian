@@ -27,17 +27,14 @@ use alloy::{
     consensus::Header,
     primitives::{B256, U256},
 };
-use ethportal_api::{
-    consensus::constants::SLOTS_PER_HISTORICAL_ROOT,
-    types::execution::{
-        accumulator::EpochAccumulator, header_with_proof::BlockProofHistoricalHashesAccumulator,
-    },
-};
 use ssz::Decode;
 
 use crate::{
     errors::{Error, Result},
     merkle::proof::MerkleTree,
+    portal_types::{
+        BlockProofHistoricalHashesAccumulator, EpochAccumulator, SLOTS_PER_HISTORICAL_ROOT,
+    },
 };
 
 /// Decode an `EpochAccumulator` from raw SSZ bytes (e.g. read from a

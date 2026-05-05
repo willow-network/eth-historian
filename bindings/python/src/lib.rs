@@ -6,10 +6,23 @@
 //! own way (Portal sidecar via httpx, Era1 file via filesystem, etc.)
 //! and pass them in.
 
+use std::sync::OnceLock;
+
 use eth_historian::{HeaderWithProof, Verifier};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use ssz::Decode;
+use tokio::runtime::Runtime;
+
+fn runtime() -> &'static Runtime {
+    static RT: OnceLock<Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to construct tokio runtime for eth-historian Python binding")
+    })
+}
 
 #[pyclass(name = "VerifiedBlock")]
 #[derive(Clone)]
@@ -42,19 +55,23 @@ impl PyVerifiedBlock {
     }
 }
 
-/// Verify SSZ-encoded `HeaderWithProof` bytes. Async — returns an
-/// awaitable that resolves to a `VerifiedBlock` instance, or raises
-/// `ValueError` on verification failure.
+/// Verify SSZ-encoded `HeaderWithProof` bytes.
+///
+/// Synchronous — returns a `VerifiedBlock` directly, or raises
+/// `ValueError` on verification failure. Verification is CPU-bound
+/// (SSZ decode + Merkle proof check), no I/O involved, so a sync API
+/// is appropriate and lets callers use it from both sync and async
+/// Python code without runtime ceremony.
 #[pyfunction]
-fn verify_header_with_proof<'py>(py: Python<'py>, bytes: Vec<u8>) -> PyResult<Bound<'py, PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+fn verify_header_with_proof(py: Python<'_>, bytes: Vec<u8>) -> PyResult<PyVerifiedBlock> {
+    py.allow_threads(|| {
         let verifier = Verifier::new();
 
         let hwp = HeaderWithProof::from_ssz_bytes(&bytes).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("SSZ decode failed: {:?}", e))
         })?;
 
-        let verified = verifier.verify(&hwp).await.map_err(|e| {
+        let verified = runtime().block_on(verifier.verify(&hwp)).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("verification failed: {}", e))
         })?;
 

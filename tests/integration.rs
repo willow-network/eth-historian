@@ -12,11 +12,11 @@
 //! * Block 15,539,558 — post-merge / pre-Capella (HistoricalRoots)
 //! * Block 15,555,729 — post-merge / pre-Capella (HistoricalRoots)
 
+use eth_historian::portal_types::HistoricalSummaries;
 use eth_historian::{
     proof_construction::{construct_pre_merge_proof, decode_epoch_accumulator},
     AuthPath, BlockHeaderProof, HeaderWithProof, Verifier,
 };
-use ethportal_api::consensus::historical_summaries::HistoricalSummaries;
 use ssz::Decode;
 
 const FIXTURE_PRE_MERGE: &str = include_str!("fixtures/header_with_proof_1000010.hex");
@@ -222,8 +222,8 @@ async fn construct_proof_round_trip() {
     // This proves the construct→verify pipeline is consistent: a
     // proof we generate locally validates against the same canonized
     // accumulator the verifier checks against.
-    let epoch_acc = decode_epoch_accumulator(EPOCH_RECORD_122)
-        .expect("epoch_acc fixture should SSZ-decode");
+    let epoch_acc =
+        decode_epoch_accumulator(EPOCH_RECORD_122).expect("epoch_acc fixture should SSZ-decode");
 
     let original_bytes = decode_fixture(FIXTURE_PRE_MERGE);
     let original_hwp = HeaderWithProof::from_ssz_bytes(&original_bytes).unwrap();
@@ -238,9 +238,10 @@ async fn construct_proof_round_trip() {
     };
 
     let verifier = Verifier::new();
-    let verified = verifier.verify(&our_hwp).await.expect(
-        "locally-constructed proof must verify against the canonized accumulator",
-    );
+    let verified = verifier
+        .verify(&our_hwp)
+        .await
+        .expect("locally-constructed proof must verify against the canonized accumulator");
     assert_eq!(verified.header.number, 1_000_010);
     assert_eq!(verified.auth_path, AuthPath::HistoricalHashes);
 }
@@ -307,7 +308,10 @@ mod portal_sidecar_mock_tests {
         let source = PortalSidecarSource::new(mock_server.uri()).unwrap();
         let verifier = Verifier::builder().data_source(source).build();
 
-        let err = verifier.verify_block_by_number(10_000_835).await.unwrap_err();
+        let err = verifier
+            .verify_block_by_number(10_000_835)
+            .await
+            .unwrap_err();
         assert!(
             err.to_string().contains("not found"),
             "RPC error message should be surfaced; got: {}",
@@ -363,7 +367,10 @@ mod portal_sidecar_mock_tests {
             .await;
 
         let good_server = MockServer::start().await;
-        let fixture_hex = FIXTURE_PRE_MERGE.trim().trim_start_matches("0x").to_string();
+        let fixture_hex = FIXTURE_PRE_MERGE
+            .trim()
+            .trim_start_matches("0x")
+            .to_string();
         Mock::given(method("POST"))
             .and(path("/"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -389,8 +396,7 @@ async fn construct_proof_rejects_wrong_epoch() {
     // If the caller hands us an EpochAccumulator that doesn't cover
     // the header's block number, construction must fail loudly — never
     // silently produce an invalid proof.
-    let epoch_acc =
-        decode_epoch_accumulator(EPOCH_RECORD_122).expect("epoch_acc decode");
+    let epoch_acc = decode_epoch_accumulator(EPOCH_RECORD_122).expect("epoch_acc decode");
 
     // Block 15,539,558 belongs to epoch 1897, not 122. The header.hash
     // won't match epoch[122][index 1894 in the partial range], so

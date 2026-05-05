@@ -14,13 +14,11 @@ authors = ["Paul DeLucia <pauldelucia2@gmail.com>", "Willow Network contributors
 rust-version = "1.85"
 
 [dependencies]
-# Portal types vendored via ethportal-api: HeaderWithProof, BlockProofHistorical*,
-# HistoricalRoots, HistoricalSummaries, network_spec, content keys.
-ethportal-api = "0.12"
-
-# Ethereum primitives + alloy consensus header type.
-alloy = { version = ">=1.1, <1.6", default-features = false, features = ["consensus", "eips", "rpc-types-beacon", "serde"] }
-alloy-hardforks = "0.2"
+# Ethereum primitives + alloy consensus header type. Used by both the
+# vendored Portal types and the verifier. `rlp` is needed by
+# `portal_types::execution::ssz_header` (RLP-in-SSZ codec).
+alloy = { version = ">=1.1, <1.6", default-features = false, features = ["consensus", "eips", "rlp", "serde"] }
+alloy-rlp = "0.3"
 
 # SSZ + tree hashing — same versions trin uses.
 ethereum_ssz = "0.9"
@@ -53,20 +51,12 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 default = ["archive-rpc", "portal-sidecar"]
 archive-rpc = ["reqwest"]
 portal-sidecar = ["reqwest"]
-# era1 = ["e2store"] — currently disabled: e2store 0.4 pulls ethportal-api
-# 0.8 which conflicts with our 0.12 dep on the c-kzg native lib. Will
-# re-enable when e2store's ethportal-api dep catches up. Tracked as
-# v0.2 follow-up.
-
-[build-dependencies]
-# Workaround: `ethportal-api 0.12.0`'s build script depends on `vergen`
-# with a caret range that picks `vergen 9.1.x`, which (a) has an `Add`
-# trait incompatible with `vergen-git2 1.0.7`'s `Git2` impl and (b)
-# raises MSRV from 1.87 to 1.88. Pinning our own build-dep to `~9.0`
-# constrains the resolver to `9.0.x` for everyone in the dep graph.
-# Once `ethportal-api` ships a fix (filed and closed at
-# https://github.com/ethereum/trin/pull/1899) this can be removed.
-vergen = "~9.0"
+# era1 = ["e2store"] — disabled in v0.1 due to a c-kzg native-link
+# conflict between e2store 0.4 (pulls ethportal-api 0.8 / c-kzg 1.x)
+# and our previous ethportal-api 0.12 dep (c-kzg 2.x). Now that
+# ethportal-api is no longer a transitive dep (vendored), re-enabling
+# era1 should be straightforward — tracked at
+# https://github.com/willow-network/eth-historian/issues/1.
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -13,13 +13,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 eth-historian = { path = "../..", default-features = false }
-ethportal-api = "0.12"
 ssz = { package = "ethereum_ssz", version = "0.9" }
 
 pyo3 = { version = "0.24", features = ["extension-module"] }
-pyo3-async-runtimes = { version = "0.24", features = ["tokio-runtime"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync"] }
+tokio = { version = "1", features = ["rt", "sync"] }
 hex = "0.4"
-
-[build-dependencies]
-vergen = "~9.0"

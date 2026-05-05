@@ -5,11 +5,10 @@
 //!
 //! Source: trin commit `30aeef8`, `crates/validation/src/historical_roots_acc.rs`.
 
-use ethportal_api::consensus::beacon_state::HistoricalRoots;
 use ssz::{Decode, Encode};
 use tree_hash::{Hash256, PackedEncoding, TreeHash, TreeHashType};
 
-use crate::EmbeddedAssets;
+use crate::{portal_types::HistoricalRoots, EmbeddedAssets};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoricalRootsAccumulator {

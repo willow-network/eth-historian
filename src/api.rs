@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use alloy::consensus::Header;
-use ethportal_api::consensus::historical_summaries::HistoricalSummaries;
 use ssz::Decode;
 
 use crate::{
     errors::{Error, Result},
     header_validator::HeaderValidator,
+    portal_types::HistoricalSummaries,
     sources::DataSource,
     HeaderWithProof,
 };

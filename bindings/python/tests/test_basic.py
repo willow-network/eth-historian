@@ -17,15 +17,13 @@ def test_canonized_fingerprints_match_published():
     )
 
 
-@pytest.mark.asyncio
-async def test_empty_bytes_rejected():
+def test_empty_bytes_rejected():
     """An empty payload should fail SSZ decode, not crash."""
     with pytest.raises(ValueError):
-        await verify_header_with_proof(b"")
+        verify_header_with_proof(b"")
 
 
-@pytest.mark.asyncio
-async def test_garbage_bytes_rejected():
+def test_garbage_bytes_rejected():
     """Random bytes should fail SSZ decode cleanly."""
     with pytest.raises(ValueError):
-        await verify_header_with_proof(b"not-valid-ssz-content" * 50)
+        verify_header_with_proof(b"not-valid-ssz-content" * 50)

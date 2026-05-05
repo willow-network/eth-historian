@@ -48,6 +48,7 @@ pub mod header_validator;
 pub mod historical_roots_acc;
 pub mod historical_summaries_provider;
 pub mod merkle;
+pub mod portal_types;
 pub mod proof_construction;
 pub mod sources;
 
@@ -55,9 +56,11 @@ pub use api::{AuthPath, VerifiedBlock, Verifier, VerifierBuilder};
 pub use errors::Error;
 pub use header_validator::HeaderValidator;
 
-// Re-export ethportal-api types we accept on our public API so callers
-// don't need a direct dep just to construct/inspect a `HeaderWithProof`.
-pub use ethportal_api::types::execution::header_with_proof::{
+// Re-export Portal Network types so callers don't need a direct dep
+// to construct/inspect a `HeaderWithProof`. These are vendored from
+// `ethportal-api` (commit `30aeef8`) — see `portal_types/` for the
+// trust-and-vendoring rationale.
+pub use portal_types::{
     BlockHeaderProof, BlockProofHistoricalHashesAccumulator, BlockProofHistoricalRoots,
     BlockProofHistoricalSummariesCapella, BlockProofHistoricalSummariesDeneb, HeaderWithProof,
 };

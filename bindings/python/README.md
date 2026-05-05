@@ -11,36 +11,32 @@ pip install eth-historian
 ## Usage
 
 ```python
-import asyncio
 import httpx
 from eth_historian import verify_header_with_proof, canonized_fingerprints
 
-async def main():
-    # 1. Fetch SSZ-encoded HeaderWithProof bytes from any Portal-aware source.
-    async with httpx.AsyncClient() as client:
-        # Example: trin sidecar legacy History network
-        resp = await client.post("http://localhost:8545", json={
-            "jsonrpc": "2.0", "id": 1,
-            "method": "portal_legacyHistoryGetContent",
-            # BlockHeaderByNumber content key for block 12,345,678
-            "params": ["0x034e61bc0000000000"],
-        })
-        ssz_hex = resp.json()["result"]["content"]
-        ssz_bytes = bytes.fromhex(ssz_hex.removeprefix("0x"))
+# 1. Fetch SSZ-encoded HeaderWithProof bytes from any Portal-aware source.
+resp = httpx.post("http://localhost:8545", json={
+    "jsonrpc": "2.0", "id": 1,
+    "method": "portal_legacyHistoryGetContent",
+    # BlockHeaderByNumber content key for block 12,345,678
+    "params": ["0x034e61bc0000000000"],
+})
+ssz_hex = resp.json()["result"]["content"]
+ssz_bytes = bytes.fromhex(ssz_hex.removeprefix("0x"))
 
-    # 2. Verify cryptographically against the canonized accumulators.
-    verified = await verify_header_with_proof(ssz_bytes)
-    print(f"block:           {verified.block_number}")
-    print(f"state root:      {verified.state_root}")
-    print(f"authenticated:   {verified.auth_path}")
+# 2. Verify cryptographically against the canonized accumulators.
+#    Synchronous — no event loop required. Verification is CPU-bound
+#    (SSZ decode + Merkle proof check), no I/O involved.
+verified = verify_header_with_proof(ssz_bytes)
+print(f"block:           {verified.block_number}")
+print(f"state root:      {verified.state_root}")
+print(f"authenticated:   {verified.auth_path}")
 
-    # 3. (Optional) Verify the wheel ships the canonized fingerprints
-    # you expect.
-    fp = canonized_fingerprints()
-    assert fp["merge_macc_bin_sha256"] == \
-        "0xa2368bfa82a89a898b31dca6f37aa287918bd671bd74058912bc440c2288d791"
-
-asyncio.run(main())
+# 3. (Optional) Verify the wheel ships the canonized fingerprints
+# you expect.
+fp = canonized_fingerprints()
+assert fp["merge_macc_bin_sha256"] == \
+    "0xa2368bfa82a89a898b31dca6f37aa287918bd671bd74058912bc440c2288d791"
 ```
 
 ## Build (from source)

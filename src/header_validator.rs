@@ -8,26 +8,25 @@
 //! `portal-spec-tests` git submodule).
 
 use alloy::{consensus::Header, primitives::B256};
-use alloy_hardforks::EthereumHardforks;
 use anyhow::bail;
-use ethportal_api::{
-    consensus::{constants::SLOTS_PER_HISTORICAL_ROOT, historical_summaries::HistoricalSummaries},
-    types::{
-        execution::header_with_proof::{
-            BeaconBlockProofHistoricalRoots, BeaconBlockProofHistoricalSummaries, BlockHeaderProof,
-            BlockProofHistoricalHashesAccumulator, BlockProofHistoricalRoots,
-            BlockProofHistoricalSummariesCapella, BlockProofHistoricalSummariesDeneb,
-            HeaderWithProof,
-        },
-        network_spec::network_spec,
-    },
-};
 use tracing::error;
 use tree_hash::TreeHash;
 
 use crate::{
-    accumulator::PreMergeAccumulator, historical_roots_acc::HistoricalRootsAccumulator,
-    historical_summaries_provider::HistoricalSummariesProvider, merkle::proof::verify_merkle_proof,
+    accumulator::PreMergeAccumulator,
+    historical_roots_acc::HistoricalRootsAccumulator,
+    historical_summaries_provider::HistoricalSummariesProvider,
+    merkle::proof::verify_merkle_proof,
+    portal_types::{
+        network_spec::{
+            is_cancun_active_at_timestamp, is_paris_active_at_block,
+            is_shanghai_active_at_timestamp,
+        },
+        BeaconBlockProofHistoricalRoots, BeaconBlockProofHistoricalSummaries, BlockHeaderProof,
+        BlockProofHistoricalHashesAccumulator, BlockProofHistoricalRoots,
+        BlockProofHistoricalSummariesCapella, BlockProofHistoricalSummariesDeneb, HeaderWithProof,
+        HistoricalSummaries, SLOTS_PER_HISTORICAL_ROOT,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -91,7 +90,7 @@ impl HeaderValidator {
         header: &Header,
         proof: &BlockProofHistoricalHashesAccumulator,
     ) -> anyhow::Result<()> {
-        if network_spec().is_paris_active_at_block(header.number) {
+        if is_paris_active_at_block(header.number) {
             bail!("Invalid proof type found for post-merge header.");
         }
 
@@ -120,10 +119,10 @@ impl HeaderValidator {
         header_hash: B256,
         proof: &BlockProofHistoricalRoots,
     ) -> anyhow::Result<()> {
-        if !network_spec().is_paris_active_at_block(block_number) {
+        if !is_paris_active_at_block(block_number) {
             bail!("Invalid BlockProofHistoricalRoots found for pre-Merge header.");
         }
-        if network_spec().is_shanghai_active_at_timestamp(block_timestamp) {
+        if is_shanghai_active_at_timestamp(block_timestamp) {
             bail!("Invalid BlockProofHistoricalRoots found for post-Shanghai header.");
         }
 
@@ -152,10 +151,10 @@ impl HeaderValidator {
         header_hash: B256,
         proof: &BlockProofHistoricalSummariesCapella,
     ) -> anyhow::Result<()> {
-        if !network_spec().is_shanghai_active_at_timestamp(block_timestamp) {
+        if !is_shanghai_active_at_timestamp(block_timestamp) {
             bail!("Invalid BlockProofHistoricalSummariesCapella found for pre-Shanghai header.");
         }
-        if network_spec().is_cancun_active_at_timestamp(block_timestamp) {
+        if is_cancun_active_at_timestamp(block_timestamp) {
             bail!("Invalid BlockProofHistoricalSummariesCapella found for post-Cancun header.");
         }
 
@@ -187,7 +186,7 @@ impl HeaderValidator {
         header_hash: B256,
         proof: &BlockProofHistoricalSummariesDeneb,
     ) -> anyhow::Result<()> {
-        if !network_spec().is_cancun_active_at_timestamp(block_timestamp) {
+        if !is_cancun_active_at_timestamp(block_timestamp) {
             bail!("Invalid BlockProofHistoricalSummariesDeneb found for pre-Cancun header.");
         }
 

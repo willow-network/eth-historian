@@ -16,7 +16,6 @@ crate-type = ["cdylib", "rlib"]
 # way and pass them in.
 eth-historian = { path = "../..", default-features = false }
 
-ethportal-api = "0.12"
 ssz = { package = "ethereum_ssz", version = "0.9" }
 
 wasm-bindgen = "0.2"
@@ -31,5 +30,12 @@ tokio = { version = "1", features = ["sync"] }
 
 console_error_panic_hook = "0.1"
 
-[build-dependencies]
-vergen = "~9.0"
+# When building for wasm32 we have to opt every transitive `getrandom`
+# version into JS-shimmed entropy. Without this, the `wasm*-unknown-unknown`
+# target rejects `getrandom` at compile time (no default entropy source
+# on bare wasm). The feature name changed across major versions:
+# 0.2.x = "js", 0.3.x and later = "wasm_js".
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }

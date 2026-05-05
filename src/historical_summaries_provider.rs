@@ -12,10 +12,9 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail};
-use ethportal_api::consensus::historical_summaries::{
-    historical_summary_index, HistoricalSummaries, HistoricalSummary,
-};
 use tokio::sync::RwLock;
+
+use crate::portal_types::{historical_summary_index, HistoricalSummaries, HistoricalSummary};
 
 #[derive(Debug, Clone, Default)]
 pub struct HistoricalSummariesProvider {

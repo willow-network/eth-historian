@@ -28,15 +28,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ethportal_api::types::execution::{
-    accumulator::EpochAccumulator,
-    header_with_proof::{BlockHeaderProof, HeaderWithProof},
-};
 use serde::Deserialize;
 use ssz::Encode;
 
 use crate::{
     errors::{Error, Result},
+    portal_types::{BlockHeaderProof, EpochAccumulator, HeaderWithProof},
     proof_construction::{
         construct_pre_merge_proof, decode_epoch_accumulator, epoch_index_of_block,
     },
@@ -105,6 +102,10 @@ struct JsonRpcError {
 #[derive(Debug, Deserialize)]
 struct RawBlock {
     number: String,
+    // Returned by `eth_getBlockByNumber`; not currently consumed (we
+    // recompute via `header.hash_slow()` after parsing) but kept here so
+    // the deserializer accepts the full RPC response shape.
+    #[allow(dead_code)]
     hash: String,
     #[serde(rename = "parentHash")]
     parent_hash: String,

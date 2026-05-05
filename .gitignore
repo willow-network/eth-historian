@@ -21,3 +21,7 @@ Cargo.lock.bak
 
 # Optional epoch-accumulator data (downloaded on first use, ~995 MB)
 /epoch_accs/
+
+# wasm-pack build outputs
+/bindings/ts/target
+/bindings/ts/Cargo.lock

@@ -1,0 +1,18 @@
+[package]
+name = "eth-historian-go"
+version = "0.1.0"
+edition = "2021"
+description = "Rust→C FFI shim for the Go bindings of eth-historian."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/willow-network/eth-historian"
+publish = false
+
+[lib]
+name = "eth_historian"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+eth-historian = { path = "../..", default-features = false }
+ssz = { package = "ethereum_ssz", version = "0.9" }
+hex = "0.4"
+tokio = { version = "1", features = ["rt", "sync"] }

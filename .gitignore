@@ -25,3 +25,8 @@ Cargo.lock.bak
 # wasm-pack build outputs
 /bindings/ts/target
 /bindings/ts/Cargo.lock
+
+# Go binding's Rust static library build outputs
+/bindings/go/target
+/bindings/go/Cargo.lock
+/bindings/go/*.test

@@ -142,6 +142,22 @@ impl Verifier {
         VerifierBuilder::new()
     }
 
+    /// Replace the in-memory `HistoricalSummaries` snapshot used for
+    /// post-Capella verification. Call after fetching a fresh snapshot
+    /// from a beacon source (e.g.
+    /// [`sources::PortalBeaconSidecarSource`][crate::sources::PortalBeaconSidecarSource])
+    /// — typically every ~6 months as the chain advances past your
+    /// last refresh. No-op if you only verify pre-Capella blocks.
+    pub async fn set_historical_summaries(
+        &self,
+        summaries: crate::portal_types::HistoricalSummaries,
+    ) {
+        self.validator
+            .historical_summaries_provider
+            .set_summaries(summaries)
+            .await;
+    }
+
     /// Verify a `HeaderWithProof` you already have. Use this when you've
     /// fetched the bytes yourself (Era1 file, Portal Network, etc.) and
     /// just need cryptographic verification.

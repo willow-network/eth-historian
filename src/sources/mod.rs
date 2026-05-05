@@ -39,6 +39,11 @@ pub mod portal;
 #[cfg(feature = "portal-sidecar")]
 pub use portal::PortalSidecarSource;
 
+#[cfg(feature = "portal-sidecar")]
+pub mod portal_beacon;
+#[cfg(feature = "portal-sidecar")]
+pub use portal_beacon::{current_historical_summaries_epoch, PortalBeaconSidecarSource};
+
 #[cfg(feature = "archive-rpc")]
 pub mod archive_rpc;
 #[cfg(feature = "archive-rpc")]

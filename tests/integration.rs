@@ -391,6 +391,129 @@ mod portal_sidecar_mock_tests {
     }
 }
 
+#[cfg(feature = "portal-sidecar")]
+mod beacon_sidecar_mock_tests {
+    use super::*;
+    use eth_historian::portal_types::HistoricalSummariesWithProof;
+    use eth_historian::sources::PortalBeaconSidecarSource;
+    use serde_json::json;
+    use ssz::Encode;
+    use ssz_types::FixedVector;
+    use wiremock::matchers::{body_string_contains, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Build a stub `HistoricalSummariesWithProof` containing the
+    /// real fixture summaries — the `proof` is dummied because the
+    /// proof verification is out-of-scope for v0.1's refresh path
+    /// (the Portal sidecar is the trust boundary today).
+    fn stub_with_proof_bytes() -> Vec<u8> {
+        let summaries = load_historical_summaries();
+        let proof = FixedVector::new(vec![alloy::primitives::B256::ZERO; 6])
+            .expect("6-element FixedVector");
+        let value = HistoricalSummariesWithProof {
+            epoch: 11_476_992 / 32, // matches the snapshot's slot
+            historical_summaries: summaries,
+            proof,
+        };
+        value.as_ssz_bytes()
+    }
+
+    /// `fetch_historical_summaries_with_proof(epoch)` against a
+    /// wiremock'd Portal beacon sidecar — the same wire shape trin
+    /// uses (`portal_beaconGetContent`, `0x14 || ssz(epoch)`).
+    #[tokio::test]
+    async fn beacon_sidecar_returns_summaries_with_proof() {
+        let mock_server = MockServer::start().await;
+
+        let with_proof_hex = hex::encode(stub_with_proof_bytes());
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_string_contains("portal_beaconGetContent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "content": format!("0x{}", with_proof_hex),
+                    "utpTransfer": false,
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let source = PortalBeaconSidecarSource::new(mock_server.uri()).unwrap();
+        let result = source
+            .fetch_historical_summaries_with_proof(358_656)
+            .await
+            .unwrap();
+        assert_eq!(result.epoch, 11_476_992 / 32);
+        assert!(!result.historical_summaries.is_empty());
+    }
+
+    /// JSON-RPC error from the beacon sidecar must propagate as
+    /// `Error::DataSource`, not panic.
+    #[tokio::test]
+    async fn beacon_sidecar_rpc_error_surfaces() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0", "id": 1,
+                "error": { "code": -32000, "message": "summaries not in DHT" }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let source = PortalBeaconSidecarSource::new(mock_server.uri()).unwrap();
+        let err = source
+            .fetch_historical_summaries_with_proof(0)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("not in DHT"),
+            "beacon RPC error should surface; got: {}",
+            err
+        );
+    }
+
+    /// End-to-end: start with a Verifier that has NO `historical_summaries`
+    /// configured (so Capella verification fails), refresh it via
+    /// the beacon sidecar, then verify a real Capella block successfully.
+    /// Proves the refresh path is wired correctly into the Verifier.
+    #[tokio::test]
+    async fn refresh_unblocks_post_capella_verification() {
+        let mock_server = MockServer::start().await;
+        let with_proof_hex = hex::encode(stub_with_proof_bytes());
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_string_contains("portal_beaconGetContent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0", "id": 1,
+                "result": { "content": format!("0x{}", with_proof_hex), "utpTransfer": false }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        // Verifier with EMPTY historical_summaries — Capella verify fails.
+        let verifier = Verifier::new();
+        let bytes = decode_fixture(FIXTURE_CAPELLA_FIRST);
+        let hwp = HeaderWithProof::from_ssz_bytes(&bytes).unwrap();
+        assert!(
+            verifier.verify(&hwp).await.is_err(),
+            "must fail before refresh"
+        );
+
+        // Refresh from the beacon sidecar.
+        let source = PortalBeaconSidecarSource::new(mock_server.uri()).unwrap();
+        let summaries = source.fetch_latest_historical_summaries().await.unwrap();
+        verifier.set_historical_summaries(summaries).await;
+
+        // Now Capella verify must succeed.
+        let verified = verifier.verify(&hwp).await.unwrap();
+        assert_eq!(verified.auth_path, AuthPath::HistoricalSummariesCapella);
+        assert_eq!(verified.header.number, 17_034_870);
+    }
+}
+
 #[tokio::test]
 async fn construct_proof_rejects_wrong_epoch() {
     // If the caller hands us an EpochAccumulator that doesn't cover

@@ -49,5 +49,10 @@ pub mod archive_rpc;
 #[cfg(feature = "archive-rpc")]
 pub use archive_rpc::ArchiveRpcSource;
 
+#[cfg(feature = "archive-rpc")]
+pub mod beacon_rpc;
+#[cfg(feature = "archive-rpc")]
+pub use beacon_rpc::{BeaconDataProvider, BeaconRpcSource};
+
 // `era1` feature currently disabled — see `Cargo.toml` for details.
 // The scaffold is preserved at `src/sources/era1.rs` for v0.2.

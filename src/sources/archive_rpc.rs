@@ -20,10 +20,16 @@
 //! fails (block_hash mismatch in the epoch accumulator) or that fails
 //! the merkle proof check.
 //!
-//! Currently supports the **pre-merge era only** (blocks 0..15,537,393).
-//! Post-merge requires a different proof shape (`historical_roots` /
-//! `historical_summaries`) that we don't construct locally yet — for
-//! those blocks, use a different source (Era1 file or Portal sidecar).
+//! Supports both pre-merge and post-merge eras:
+//!
+//! * Pre-merge (blocks 0..15,537,393): construct
+//!   `BlockProofHistoricalHashesAccumulator` from an `EpochProvider`.
+//! * Post-merge (Bellatrix → Electra): construct the appropriate
+//!   `BlockProof*` variant from a [`crate::sources::BeaconDataProvider`]
+//!   that fetches the relevant `SignedBeaconBlock` + `HistoricalBatch`.
+//!   The default beacon provider talks the standard Ethereum
+//!   beacon-API; operators provide a beacon node URL to enable this
+//!   path.
 
 use std::sync::Arc;
 
@@ -33,11 +39,16 @@ use ssz::Encode;
 
 use crate::{
     errors::{Error, Result},
-    portal_types::{BlockHeaderProof, EpochAccumulator, HeaderWithProof},
+    portal_types::{
+        build_capella_historical_summaries_proof, build_deneb_historical_summaries_proof,
+        build_electra_historical_summaries_proof, build_historical_roots_proof,
+        consensus::beacon_block::SignedBeaconBlock, network_spec::slot_for_execution_timestamp,
+        BlockHeaderProof, EpochAccumulator, HeaderWithProof,
+    },
     proof_construction::{
         construct_pre_merge_proof, decode_epoch_accumulator, epoch_index_of_block,
     },
-    sources::DataSource,
+    sources::{beacon_rpc::BeaconDataProvider, DataSource},
 };
 
 /// Provides the `EpochAccumulator` covering a given block number. Implement
@@ -85,6 +96,7 @@ pub struct ArchiveRpcSource {
     rpc_url: String,
     http: reqwest::Client,
     epoch_provider: Option<Arc<dyn EpochProvider>>,
+    beacon_provider: Option<Arc<dyn BeaconDataProvider>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -145,10 +157,11 @@ struct RawBlock {
 
 impl ArchiveRpcSource {
     /// Construct a source pointing at `rpc_url`. Without an epoch
-    /// provider configured, only post-merge blocks would in principle be
-    /// servable (and post-merge proof construction isn't yet implemented
-    /// — see module docs), so practically you should also call
-    /// [`Self::with_epoch_provider`] for the pre-merge case.
+    /// provider configured pre-merge blocks fail; without a beacon
+    /// provider configured post-merge blocks fail. Most production setups
+    /// chain both — call [`Self::with_epoch_provider`] and
+    /// [`Self::with_beacon_provider`] before passing the source to a
+    /// [`crate::Verifier`].
     pub fn new(rpc_url: impl Into<String>) -> Self {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -158,6 +171,7 @@ impl ArchiveRpcSource {
             rpc_url: rpc_url.into(),
             http,
             epoch_provider: None,
+            beacon_provider: None,
         }
     }
 
@@ -165,6 +179,66 @@ impl ArchiveRpcSource {
     pub fn with_epoch_provider<P: EpochProvider + 'static>(mut self, provider: P) -> Self {
         self.epoch_provider = Some(Arc::new(provider));
         self
+    }
+
+    /// Attach a [`BeaconDataProvider`] for post-merge proof construction.
+    /// Without this, post-merge blocks return an error when fetched
+    /// (caller should use a different source for those blocks, e.g.
+    /// `PortalSidecarSource` or `Era1FileSource`).
+    pub fn with_beacon_provider<P: BeaconDataProvider + 'static>(mut self, provider: P) -> Self {
+        self.beacon_provider = Some(Arc::new(provider));
+        self
+    }
+
+    /// Construct a post-merge `HeaderWithProof`. Fetches a beacon block +
+    /// historical batch via the configured `BeaconDataProvider`, then
+    /// dispatches on the consensus fork to pick the right proof shape.
+    async fn build_post_merge_hwp(&self, header: alloy::consensus::Header) -> Result<Vec<u8>> {
+        let provider = self.beacon_provider.as_ref().ok_or_else(|| {
+            Error::DataSource(
+                "ArchiveRpcSource: post-merge block requested but no BeaconDataProvider configured. Call .with_beacon_provider(..)".into(),
+            )
+        })?;
+
+        let slot = slot_for_execution_timestamp(header.timestamp).ok_or_else(|| {
+            Error::DataSource(format!(
+                "post-merge block {} has timestamp {} before beacon genesis (mainnet only is supported)",
+                header.number, header.timestamp
+            ))
+        })?;
+
+        let signed_block = provider.fetch_signed_beacon_block(slot).await?;
+        let historical_batch = provider.fetch_historical_batch(slot).await?;
+
+        let proof = match signed_block {
+            SignedBeaconBlock::Bellatrix(b) => BlockHeaderProof::HistoricalRoots(
+                build_historical_roots_proof(slot, &historical_batch, &b.message),
+            ),
+            SignedBeaconBlock::Capella(b) => BlockHeaderProof::HistoricalSummariesCapella(
+                build_capella_historical_summaries_proof(
+                    slot,
+                    &historical_batch.block_roots,
+                    &b.message,
+                ),
+            ),
+            SignedBeaconBlock::Deneb(b) => {
+                BlockHeaderProof::HistoricalSummariesDeneb(build_deneb_historical_summaries_proof(
+                    slot,
+                    &historical_batch.block_roots,
+                    &b.message,
+                ))
+            }
+            SignedBeaconBlock::Electra(b) => BlockHeaderProof::HistoricalSummariesDeneb(
+                build_electra_historical_summaries_proof(
+                    slot,
+                    &historical_batch.block_roots,
+                    &b.message,
+                ),
+            ),
+        };
+
+        let hwp = HeaderWithProof { header, proof };
+        Ok(hwp.as_ssz_bytes())
     }
 
     async fn fetch_raw_block_by_number(&self, block_number: u64) -> Result<RawBlock> {
@@ -202,14 +276,8 @@ impl DataSource for ArchiveRpcSource {
         let raw = self.fetch_raw_block_by_number(block_number).await?;
         let header = raw_block_to_alloy_header(&raw)?;
 
-        // For now, only pre-merge proof construction is supported. The
-        // 15,537,394 boundary is the merge block; >= that needs
-        // historical_roots / historical_summaries paths.
         if header.number >= 15_537_394 {
-            return Err(Error::DataSource(format!(
-                "ArchiveRpcSource: post-merge proof construction not yet implemented; block {} is post-merge. Use Era1FileSource or PortalSidecarSource for this range.",
-                header.number
-            )));
+            return self.build_post_merge_hwp(header).await;
         }
 
         let provider = self.epoch_provider.as_ref().ok_or_else(|| {

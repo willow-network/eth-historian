@@ -101,3 +101,34 @@ func TestAuthPath_String(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyTransactionInclusion_RejectsWrongRootLength(t *testing.T) {
+	err := VerifyTransactionInclusion([]byte{0x01, 0x02}, 0, []byte("tx"), nil)
+	if err == nil {
+		t.Fatal("expected error for non-32-byte root")
+	}
+	if !strings.Contains(err.Error(), "must be 32 bytes") {
+		t.Errorf("expected 'must be 32 bytes' message, got: %v", err)
+	}
+}
+
+func TestVerifyReceiptInclusion_RejectsWrongRootLength(t *testing.T) {
+	err := VerifyReceiptInclusion(make([]byte, 31), 0, []byte("r"), nil)
+	if err == nil {
+		t.Fatal("expected error for non-32-byte root")
+	}
+	if !strings.Contains(err.Error(), "must be 32 bytes") {
+		t.Errorf("expected 'must be 32 bytes' message, got: %v", err)
+	}
+}
+
+func TestVerifyTransactionInclusion_EmptyProofRejected(t *testing.T) {
+	// 32-byte root is structurally valid; Rust core rejects the
+	// empty-proof path with `MptInclusion`. This proves the FFI surface
+	// correctly forwards calls into the verifier.
+	root := make([]byte, 32)
+	err := VerifyTransactionInclusion(root, 0, []byte("tx"), nil)
+	if err == nil {
+		t.Fatal("expected MPT verification failure for empty proof")
+	}
+}

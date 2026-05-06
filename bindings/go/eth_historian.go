@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"runtime"
 	"unsafe"
 )
 
@@ -101,6 +102,111 @@ func VerifyHeaderWithProof(bytes []byte) (*VerifiedBlock, error) {
 		ParentHash:       hexEncode(res.parent_hash[:]),
 		AuthPath:         AuthPath(res.auth_path),
 	}, nil
+}
+
+// VerifyTransactionInclusion verifies a transaction is in a block at
+// txIndex, against the authenticated transactionsRoot.
+//
+// transactionsRoot must be 32 bytes. rawTx is wire-format (legacy: RLP;
+// typed: type-byte || RLP). proofNodes is the MPT path from the root
+// down to the leaf. Returns nil on success; non-nil error on failure
+// with the underlying Rust message.
+func VerifyTransactionInclusion(transactionsRoot []byte, txIndex uint64, rawTx []byte, proofNodes [][]byte) error {
+	return runInclusion(
+		transactionsRoot,
+		"transactionsRoot",
+		txIndex,
+		rawTx,
+		proofNodes,
+		func(rootPtr *C.uint8_t, txPtr *C.uint8_t, txLen C.size_t, ptrs **C.uint8_t, lens *C.size_t, n C.size_t) *C.char {
+			return C.eth_historian_verify_transaction_inclusion(
+				rootPtr, C.uint64_t(txIndex), txPtr, txLen, ptrs, lens, n,
+			)
+		},
+	)
+}
+
+// VerifyReceiptInclusion verifies a receipt is in a block at
+// receiptIndex, against the authenticated receiptsRoot.
+//
+// receiptsRoot must be 32 bytes. rawReceipt is wire-format (legacy: RLP;
+// typed: type-byte || RLP). proofNodes is the MPT path from the root
+// down to the leaf. Returns nil on success; non-nil error on failure.
+func VerifyReceiptInclusion(receiptsRoot []byte, receiptIndex uint64, rawReceipt []byte, proofNodes [][]byte) error {
+	return runInclusion(
+		receiptsRoot,
+		"receiptsRoot",
+		receiptIndex,
+		rawReceipt,
+		proofNodes,
+		func(rootPtr *C.uint8_t, valPtr *C.uint8_t, valLen C.size_t, ptrs **C.uint8_t, lens *C.size_t, n C.size_t) *C.char {
+			return C.eth_historian_verify_receipt_inclusion(
+				rootPtr, C.uint64_t(receiptIndex), valPtr, valLen, ptrs, lens, n,
+			)
+		},
+	)
+}
+
+// runInclusion handles the cgo bookkeeping common to both inclusion
+// helpers: argument validation, marshalling proof nodes into parallel
+// C arrays, calling the inclusion FFI, and translating the C-string
+// error path into Go's error type.
+func runInclusion(
+	root []byte,
+	rootField string,
+	_ uint64,
+	rawValue []byte,
+	proofNodes [][]byte,
+	call func(rootPtr *C.uint8_t, valPtr *C.uint8_t, valLen C.size_t, ptrs **C.uint8_t, lens *C.size_t, n C.size_t) *C.char,
+) error {
+	if len(root) != 32 {
+		return fmt.Errorf("eth-historian: %s must be 32 bytes, got %d", rootField, len(root))
+	}
+
+	var rootPtr *C.uint8_t
+	rootPtr = (*C.uint8_t)(unsafe.Pointer(&root[0]))
+
+	var valPtr *C.uint8_t
+	if len(rawValue) > 0 {
+		valPtr = (*C.uint8_t)(unsafe.Pointer(&rawValue[0]))
+	}
+
+	// Marshal `proofNodes` into a parallel ptr+len array. Pinning the
+	// underlying slice headers via the local `ptrs`/`lens` slices keeps
+	// the Go GC from moving them while the C call runs.
+	n := len(proofNodes)
+	ptrs := make([]*C.uint8_t, n)
+	lens := make([]C.size_t, n)
+	for i, node := range proofNodes {
+		if len(node) > 0 {
+			ptrs[i] = (*C.uint8_t)(unsafe.Pointer(&node[0]))
+		}
+		lens[i] = C.size_t(len(node))
+	}
+
+	var ptrsPtr **C.uint8_t
+	var lensPtr *C.size_t
+	if n > 0 {
+		ptrsPtr = (**C.uint8_t)(unsafe.Pointer(&ptrs[0]))
+		lensPtr = (*C.size_t)(unsafe.Pointer(&lens[0]))
+	}
+
+	cerr := call(rootPtr, valPtr, C.size_t(len(rawValue)), ptrsPtr, lensPtr, C.size_t(n))
+	// Pin proofNodes / rawValue / root through the call (KeepAlive is
+	// the cgo idiom; the variables are unused after this point but
+	// must outlive the FFI call).
+	runtime.KeepAlive(root)
+	runtime.KeepAlive(rawValue)
+	runtime.KeepAlive(proofNodes)
+	runtime.KeepAlive(ptrs)
+	runtime.KeepAlive(lens)
+
+	if cerr == nil {
+		return nil
+	}
+	msg := C.GoString(cerr)
+	C.eth_historian_free_error(cerr)
+	return errors.New(msg)
 }
 
 // CanonizedFingerprints returns the SHA-256 fingerprints of the embedded

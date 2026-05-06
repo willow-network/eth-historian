@@ -89,6 +89,76 @@ fn verify_header_with_proof(py: Python<'_>, bytes: Vec<u8>) -> PyResult<PyVerifi
     })
 }
 
+/// Verify a transaction is in a block at `tx_index`, against the
+/// authenticated `transactions_root` (32 bytes).
+///
+/// `raw_tx` is wire-format bytes (legacy: RLP; typed: type-byte || RLP).
+/// `proof_nodes` is a list of `bytes` — the MPT trie nodes from root
+/// down to the leaf.
+///
+/// Raises `ValueError` on verification failure.
+#[pyfunction]
+fn verify_transaction_inclusion(
+    py: Python<'_>,
+    transactions_root: Vec<u8>,
+    tx_index: u64,
+    raw_tx: Vec<u8>,
+    proof_nodes: Vec<Vec<u8>>,
+) -> PyResult<()> {
+    py.allow_threads(|| {
+        let root = parse_root(&transactions_root, "transactions_root")?;
+        eth_historian::inclusion::verify_transaction_inclusion(
+            root,
+            tx_index,
+            &raw_tx,
+            &proof_nodes,
+        )
+        .map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("verify_transaction_inclusion: {}", e))
+        })
+    })
+}
+
+/// Verify a receipt is in a block at `receipt_index`, against the
+/// authenticated `receipts_root` (32 bytes).
+///
+/// `raw_receipt` is wire-format bytes (legacy: RLP; typed: type-byte || RLP).
+/// `proof_nodes` is a list of `bytes`.
+///
+/// Raises `ValueError` on verification failure.
+#[pyfunction]
+fn verify_receipt_inclusion(
+    py: Python<'_>,
+    receipts_root: Vec<u8>,
+    receipt_index: u64,
+    raw_receipt: Vec<u8>,
+    proof_nodes: Vec<Vec<u8>>,
+) -> PyResult<()> {
+    py.allow_threads(|| {
+        let root = parse_root(&receipts_root, "receipts_root")?;
+        eth_historian::inclusion::verify_receipt_inclusion(
+            root,
+            receipt_index,
+            &raw_receipt,
+            &proof_nodes,
+        )
+        .map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("verify_receipt_inclusion: {}", e))
+        })
+    })
+}
+
+fn parse_root(bytes: &[u8], field: &str) -> PyResult<alloy_primitives::B256> {
+    if bytes.len() != 32 {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "{} must be 32 bytes, got {}",
+            field,
+            bytes.len()
+        )));
+    }
+    Ok(alloy_primitives::B256::from_slice(bytes))
+}
+
 /// Returns the SHA-256 fingerprints of the embedded canonized accumulator
 /// binaries as a dict. Useful for clients that want to double-check the
 /// installed wheel ships the constants they expect.
@@ -111,6 +181,8 @@ fn canonized_fingerprints<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> 
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyVerifiedBlock>()?;
     m.add_function(wrap_pyfunction!(verify_header_with_proof, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_transaction_inclusion, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_receipt_inclusion, m)?)?;
     m.add_function(wrap_pyfunction!(canonized_fingerprints, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

@@ -55,6 +55,29 @@ func main() {
 }
 ```
 
+### Inclusion verification (v0.2)
+
+Once a block is authenticated, prove specific receipts or transactions are inside it via MPT proofs against the verified roots:
+
+```go
+verified, err := eth_historian.VerifyHeaderWithProof(sszBytes)
+if err != nil { log.Fatal(err) }
+
+// Receipt inclusion: rawReceipt is wire-format (legacy: RLP; typed: type-byte || RLP).
+// proofNodes is the MPT path as [][]byte.
+receiptsRoot, _ := hex.DecodeString(strings.TrimPrefix(verified.ReceiptsRoot, "0x"))
+err = eth_historian.VerifyReceiptInclusion(receiptsRoot, receiptIndex, rawReceipt, proofNodes)
+if err != nil {
+    log.Fatalf("receipt inclusion failed: %v", err)
+}
+
+// Transaction inclusion against the same authenticated block:
+txRoot, _ := hex.DecodeString(strings.TrimPrefix(verified.TransactionsRoot, "0x"))
+err = eth_historian.VerifyTransactionInclusion(txRoot, txIndex, rawTx, txProofNodes)
+```
+
+Both functions return a non-nil error on verification failure with the underlying Rust message. Caller is responsible for fetching the proof nodes (any archive node can produce them via `debug_traceBlockByNumber` / custom proof endpoints).
+
 ## Distribution
 
 The Go module currently builds against a locally-built Rust static library at `target/release/libeth_historian.a`. For pre-built distribution (so users don't need Rust+cargo):

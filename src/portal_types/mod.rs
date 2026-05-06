@@ -23,6 +23,7 @@ pub mod byte_list;
 pub mod consensus;
 pub mod execution;
 pub mod network_spec;
+pub mod utils;
 
 pub use consensus::beacon_state::HistoricalRoots;
 pub use consensus::constants::{
@@ -35,6 +36,8 @@ pub use consensus::historical_summaries::{
 };
 pub use execution::accumulator::{EpochAccumulator, HeaderRecord};
 pub use execution::header_with_proof::{
+    build_capella_historical_summaries_proof, build_deneb_historical_summaries_proof,
+    build_electra_historical_summaries_proof, build_historical_roots_proof,
     BeaconBlockProofHistoricalRoots, BeaconBlockProofHistoricalSummaries, BlockHeaderProof,
     BlockProofHistoricalHashesAccumulator, BlockProofHistoricalRoots,
     BlockProofHistoricalSummariesCapella, BlockProofHistoricalSummariesDeneb,

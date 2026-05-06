@@ -24,6 +24,23 @@ pub const MAINNET_SHANGHAI_TIMESTAMP: u64 = 1_681_338_455;
 /// Mainnet timestamp at which the Cancun (Deneb) fork activated.
 pub const MAINNET_CANCUN_TIMESTAMP: u64 = 1_710_338_135;
 
+/// Mainnet beacon-chain genesis timestamp (slot 0). Dec 1, 2020 12:00:23 UTC.
+pub const MAINNET_BEACON_GENESIS_TIMESTAMP: u64 = 1_606_824_023;
+
+/// Seconds per beacon slot on mainnet.
+pub const MAINNET_SECONDS_PER_SLOT: u64 = 12;
+
+/// Map a post-merge execution block timestamp to its consensus slot.
+///
+/// Returns `None` if the timestamp is before beacon genesis (in which
+/// case the block isn't post-merge and shouldn't be passed here).
+#[inline]
+pub fn slot_for_execution_timestamp(timestamp: u64) -> Option<u64> {
+    timestamp
+        .checked_sub(MAINNET_BEACON_GENESIS_TIMESTAMP)
+        .map(|secs_since_genesis| secs_since_genesis / MAINNET_SECONDS_PER_SLOT)
+}
+
 /// `true` if `block_number` is at or after the merge.
 #[inline]
 pub fn is_paris_active_at_block(block_number: u64) -> bool {

@@ -156,3 +156,125 @@ pub struct BlockProofHistoricalSummariesDeneb {
     pub execution_block_proof: ExecutionBlockProofDeneb,
     pub slot: u64,
 }
+
+// ─── Proof construction helpers ─────────────────────────────────────────────
+//
+// Source: trin `30aeef8`, `crates/ethportal-api/src/types/execution/
+// header_with_proof.rs`. One function per fork era — each takes a beacon
+// block + the era's authentication context (HistoricalBatch for the
+// merge→Capella era, the live `block_roots` slice for HistoricalSummaries
+// eras) and produces the era-specific `BlockProof*` SSZ container.
+
+use tree_hash::TreeHash;
+
+use crate::portal_types::consensus::{
+    beacon_block::{
+        BeaconBlockBellatrix, BeaconBlockCapella, BeaconBlockDeneb, BeaconBlockElectra,
+    },
+    beacon_state::{HistoricalBatch, RootsPerHistoricalRoot},
+    constants::SLOTS_PER_HISTORICAL_ROOT,
+    proof::build_merkle_proof_for_index,
+};
+
+/// Build `BlockProofHistoricalRoots` for a Bellatrix beacon block (merge → Capella era).
+pub fn build_historical_roots_proof(
+    slot: u64,
+    historical_batch: &HistoricalBatch,
+    beacon_block: &BeaconBlockBellatrix,
+) -> BlockProofHistoricalRoots {
+    let beacon_block_proof = BeaconBlockProofHistoricalRoots::new(
+        historical_batch.build_block_root_proof((slot % SLOTS_PER_HISTORICAL_ROOT) as usize),
+    )
+    .expect("BeaconBlockProofHistoricalRoots is fixed-size 14");
+
+    let execution_block_proof =
+        ExecutionBlockProofBellatrix::new(beacon_block.build_execution_block_hash_proof())
+            .expect("ExecutionBlockProofBellatrix is fixed-size 11");
+
+    BlockProofHistoricalRoots {
+        beacon_block_proof,
+        beacon_block_root: beacon_block.tree_hash_root(),
+        execution_block_proof,
+        slot,
+    }
+}
+
+/// Build `BlockProofHistoricalSummariesCapella` for a Capella beacon block.
+///
+/// `block_roots` is `BeaconState.block_roots` for the era containing `slot`.
+pub fn build_capella_historical_summaries_proof(
+    slot: u64,
+    block_roots: &RootsPerHistoricalRoot,
+    beacon_block: &BeaconBlockCapella,
+) -> BlockProofHistoricalSummariesCapella {
+    let beacon_block_proof =
+        BeaconBlockProofHistoricalSummaries::new(build_merkle_proof_for_index(
+            block_roots.clone(),
+            (slot % SLOTS_PER_HISTORICAL_ROOT) as usize,
+        ))
+        .expect("BeaconBlockProofHistoricalSummaries is fixed-size 13");
+
+    let execution_block_proof =
+        ExecutionBlockProofBellatrix::new(beacon_block.build_execution_block_hash_proof())
+            .expect("ExecutionBlockProofBellatrix is fixed-size 11");
+
+    BlockProofHistoricalSummariesCapella {
+        beacon_block_proof,
+        beacon_block_root: beacon_block.tree_hash_root(),
+        execution_block_proof,
+        slot,
+    }
+}
+
+/// Build `BlockProofHistoricalSummariesDeneb` for a Deneb beacon block.
+pub fn build_deneb_historical_summaries_proof(
+    slot: u64,
+    block_roots: &RootsPerHistoricalRoot,
+    beacon_block: &BeaconBlockDeneb,
+) -> BlockProofHistoricalSummariesDeneb {
+    let beacon_block_proof =
+        BeaconBlockProofHistoricalSummaries::new(build_merkle_proof_for_index(
+            block_roots.clone(),
+            (slot % SLOTS_PER_HISTORICAL_ROOT) as usize,
+        ))
+        .expect("BeaconBlockProofHistoricalSummaries is fixed-size 13");
+
+    let execution_block_proof =
+        ExecutionBlockProofDeneb::new(beacon_block.build_execution_block_hash_proof())
+            .expect("ExecutionBlockProofDeneb is fixed-size 12");
+
+    BlockProofHistoricalSummariesDeneb {
+        beacon_block_proof,
+        beacon_block_root: beacon_block.tree_hash_root(),
+        execution_block_proof,
+        slot,
+    }
+}
+
+/// Build `BlockProofHistoricalSummariesDeneb` for an Electra beacon block.
+///
+/// Electra uses the same wire shape as Deneb — the deeper-tree differences
+/// are absorbed inside the per-block proof helpers.
+pub fn build_electra_historical_summaries_proof(
+    slot: u64,
+    block_roots: &RootsPerHistoricalRoot,
+    beacon_block: &BeaconBlockElectra,
+) -> BlockProofHistoricalSummariesDeneb {
+    let beacon_block_proof =
+        BeaconBlockProofHistoricalSummaries::new(build_merkle_proof_for_index(
+            block_roots.clone(),
+            (slot % SLOTS_PER_HISTORICAL_ROOT) as usize,
+        ))
+        .expect("BeaconBlockProofHistoricalSummaries is fixed-size 13");
+
+    let execution_block_proof =
+        ExecutionBlockProofDeneb::new(beacon_block.build_execution_block_hash_proof())
+            .expect("ExecutionBlockProofDeneb is fixed-size 12");
+
+    BlockProofHistoricalSummariesDeneb {
+        beacon_block_proof,
+        beacon_block_root: beacon_block.tree_hash_root(),
+        execution_block_proof,
+        slot,
+    }
+}

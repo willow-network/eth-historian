@@ -47,6 +47,7 @@ pub mod errors;
 pub mod header_validator;
 pub mod historical_roots_acc;
 pub mod historical_summaries_provider;
+pub mod inclusion;
 pub mod merkle;
 pub mod portal_types;
 pub mod proof_construction;

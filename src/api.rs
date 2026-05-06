@@ -57,6 +57,55 @@ impl VerifiedBlock {
     pub fn block_hash(&self) -> alloy::primitives::B256 {
         self.header.hash_slow()
     }
+
+    /// Verify a transaction is in this block at `tx_index`, against the
+    /// authenticated `transactions_root`. See [`crate::inclusion`] for
+    /// the trust model.
+    pub fn verify_transaction_inclusion(
+        &self,
+        tx_index: u64,
+        raw_tx: &[u8],
+        proof_nodes: &[impl AsRef<[u8]>],
+    ) -> Result<()> {
+        crate::inclusion::verify_transaction_inclusion(
+            self.header.transactions_root,
+            tx_index,
+            raw_tx,
+            proof_nodes,
+        )
+    }
+
+    /// Verify a receipt is in this block at `receipt_index`, against the
+    /// authenticated `receipts_root`.
+    pub fn verify_receipt_inclusion(
+        &self,
+        receipt_index: u64,
+        raw_receipt: &[u8],
+        proof_nodes: &[impl AsRef<[u8]>],
+    ) -> Result<()> {
+        crate::inclusion::verify_receipt_inclusion(
+            self.header.receipts_root,
+            receipt_index,
+            raw_receipt,
+            proof_nodes,
+        )
+    }
+
+    /// Verify a receipt's inclusion and decode it into a typed
+    /// [`alloy::consensus::ReceiptEnvelope`].
+    pub fn verify_and_decode_receipt(
+        &self,
+        receipt_index: u64,
+        raw_receipt: &[u8],
+        proof_nodes: &[impl AsRef<[u8]>],
+    ) -> Result<alloy::consensus::ReceiptEnvelope> {
+        crate::inclusion::verify_and_decode_receipt(
+            self.header.receipts_root,
+            receipt_index,
+            raw_receipt,
+            proof_nodes,
+        )
+    }
 }
 
 /// Builder for [`Verifier`]. See module docs for usage.

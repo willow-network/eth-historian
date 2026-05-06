@@ -19,6 +19,9 @@ rust-version = "1.85"
 # `portal_types::execution::ssz_header` (RLP-in-SSZ codec).
 alloy = { version = ">=1.1, <1.6", default-features = false, features = ["consensus", "eips", "rlp", "serde"] }
 alloy-rlp = "0.3"
+# MPT proof verification — used by `inclusion` module to verify receipts /
+# transactions against the authenticated roots in `VerifiedBlock`.
+alloy-trie = "0.9"
 
 # SSZ + tree hashing — same versions trin uses.
 ethereum_ssz = "0.9"

@@ -40,6 +40,15 @@ pub enum Error {
     #[error("proof-construction error: {0}")]
     ProofConstruction(String),
 
+    #[error("MPT proof verification failed: {0}")]
+    MptInclusion(String),
+
+    #[error("failed to decode receipt at index {index}: {reason}")]
+    ReceiptDecode { index: u64, reason: String },
+
+    #[error("failed to decode transaction at index {index}: {reason}")]
+    TransactionDecode { index: u64, reason: String },
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }

@@ -161,19 +161,45 @@ one snapshot in the `HistoricalSummariesProvider` and looks up the
 relevant index for each request. If your application verifies blocks
 across a wide time range, refresh the snapshot when it falls behind.
 
+## Inclusion verification (v0.2+)
+
+`VerifiedBlock` carries the authenticated `transactions_root` and
+`receipts_root`. The [`inclusion`](../src/inclusion.rs) module turns
+those roots into one-call MPT-proof helpers:
+
+* `verify_transaction_inclusion(tx_index, raw_tx, proof)` — bind
+  wire-format bytes to the authenticated `transactions_root`.
+* `verify_receipt_inclusion(receipt_index, raw_receipt, proof)` — bind
+  to the authenticated `receipts_root`.
+* `verify_and_decode_receipt(...)` — same, plus return a typed
+  `alloy::consensus::ReceiptEnvelope` (handles legacy / EIP-2930 /
+  EIP-1559 / EIP-4844 / EIP-7702 variants).
+
+These are **trie-binding** helpers — they prove `(key, value)` is in a
+trie rooted at the supplied root, with key derived from the index per
+Ethereum's MPT convention (`rlp(index)`). They do not perform any
+independent header verification; the trust comes from the
+`VerifiedBlock` providing an authenticated root.
+
+Implementation delegates to `alloy-trie::proof::verify_proof` (the same
+verifier used by the alloy / reth ecosystem). The
+`root_matches_alloy_canonical_receipt_root` integration test confirms
+the trie shape we generate matches `alloy::consensus::proofs::calculate_receipt_root`.
+
 ## What this crate explicitly does NOT verify
 
-* **Block bodies.** `VerifiedBlock` holds only the header. If you need
-  to verify transactions or receipts, use the `transactions_root` /
-  `receipts_root` from the verified header as a trust anchor and run an
-  MPT proof against the body bytes you fetch separately.
 * **State roots.** `header.state_root` is authenticated, but resolving
   individual storage slots requires additional MPT proofs out of scope
-  here.
+  here. (Could land in v0.3 — same pattern as receipt inclusion, but
+  against the state trie which is significantly more complex.)
 * **Reorgs.** This crate authenticates that a block was *at some point*
   canonical (per the embedded accumulator or current beacon state). It
   does not detect reorgs against your local view; that's a chain-tip
   concern handled by tools like Helios.
+* **MPT proof generation.** Callers supply the proof — `eth-historian`
+  only verifies it. Most archive nodes can produce receipt/tx proofs;
+  for self-generated proofs, use `alloy-trie::HashBuilder` against the
+  full block body.
 
 ## References
 

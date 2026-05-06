@@ -35,6 +35,32 @@ console.log(fp.mergeMaccBinSha256);
 //   0xa2368bfa82a89a898b31dca6f37aa287918bd671bd74058912bc440c2288d791
 ```
 
+### Inclusion verification (v0.2)
+
+Once a block is authenticated, prove specific receipts or transactions are inside it via MPT proofs against the verified roots:
+
+```ts
+import {
+  verifyHeaderWithProof,
+  verifyReceiptInclusion,
+  verifyTransactionInclusion,
+} from '@willow-network/eth-historian';
+
+const verified = await verifyHeaderWithProof(sszBytes);
+
+// Receipt inclusion: prove `rawReceipt` is at `receiptIndex` under `receiptsRoot`.
+// `rawReceipt` is wire-format (legacy: RLP; typed: type-byte || RLP).
+// `proofNodes` is the MPT path as `Array<Uint8Array>`.
+const receiptsRoot = hexToBytes(verified.receiptsRoot);  // 32 bytes
+verifyReceiptInclusion(receiptsRoot, BigInt(receiptIndex), rawReceipt, proofNodes);
+
+// Transaction inclusion against the same authenticated block:
+const txRoot = hexToBytes(verified.transactionsRoot);
+verifyTransactionInclusion(txRoot, BigInt(txIndex), rawTx, txProofNodes);
+```
+
+Both functions throw on failure with a message describing the mismatch. Caller is responsible for fetching the proof nodes (any archive node can produce them via `debug_traceBlockByNumber` / custom proof endpoints).
+
 ## Build (from source)
 
 ```bash

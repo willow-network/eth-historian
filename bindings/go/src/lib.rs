@@ -159,6 +159,140 @@ pub unsafe extern "C" fn eth_historian_free_error(error: *mut c_char) {
     }
 }
 
+/// Build a `Vec<&[u8]>` view over a C array of (ptr, len) pairs.
+///
+/// # Safety
+///
+/// All pointers in `node_ptrs[0..num_nodes]` must be valid for at least
+/// `node_lens[i]` bytes, or null with len 0.
+unsafe fn proof_node_slices<'a>(
+    node_ptrs: *const *const u8,
+    node_lens: *const usize,
+    num_nodes: usize,
+) -> Result<Vec<&'a [u8]>, &'static str> {
+    if num_nodes == 0 {
+        return Ok(Vec::new());
+    }
+    if node_ptrs.is_null() || node_lens.is_null() {
+        return Err("null proof-nodes ptr/len array");
+    }
+    let ptrs = std::slice::from_raw_parts(node_ptrs, num_nodes);
+    let lens = std::slice::from_raw_parts(node_lens, num_nodes);
+    let mut out = Vec::with_capacity(num_nodes);
+    for (i, (p, l)) in ptrs.iter().zip(lens.iter()).enumerate() {
+        if *l == 0 {
+            out.push(&[][..]);
+        } else if p.is_null() {
+            return Err("null proof-node pointer with non-zero len");
+        } else {
+            // Lifetime is bound to the caller's borrow window; we hand
+            // these slices straight into eth_historian::inclusion which
+            // doesn't store them past the call.
+            let _ = i;
+            out.push(std::slice::from_raw_parts(*p, *l));
+        }
+    }
+    Ok(out)
+}
+
+unsafe fn read_root(ptr: *const u8) -> Result<alloy_primitives::B256, &'static str> {
+    if ptr.is_null() {
+        return Err("null root pointer");
+    }
+    let bytes = std::slice::from_raw_parts(ptr, 32);
+    Ok(alloy_primitives::B256::from_slice(bytes))
+}
+
+fn err_cstring(msg: String) -> *mut c_char {
+    CString::new(msg)
+        .unwrap_or_else(|_| CString::new("internal: unencodable error message").unwrap())
+        .into_raw()
+}
+
+/// Verify a transaction is in a block at `tx_index`, against the
+/// authenticated `transactions_root` (32 bytes).
+///
+/// Returns null on success; on failure returns a Rust-allocated C
+/// string the caller MUST free via `eth_historian_free_error`.
+///
+/// # Safety
+///
+/// * `transactions_root` must point to 32 readable bytes.
+/// * `raw_tx` must point to `raw_tx_len` readable bytes (or be null with len 0).
+/// * `proof_node_ptrs` / `proof_node_lens` are arrays of length
+///   `num_proof_nodes` with parallel lifetimes; each `proof_node_ptrs[i]`
+///   must be readable for `proof_node_lens[i]` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn eth_historian_verify_transaction_inclusion(
+    transactions_root: *const u8,
+    tx_index: u64,
+    raw_tx: *const u8,
+    raw_tx_len: usize,
+    proof_node_ptrs: *const *const u8,
+    proof_node_lens: *const usize,
+    num_proof_nodes: usize,
+) -> *mut c_char {
+    let root = match read_root(transactions_root) {
+        Ok(r) => r,
+        Err(e) => return err_cstring(e.into()),
+    };
+    let raw = if raw_tx_len == 0 {
+        &[][..]
+    } else if raw_tx.is_null() {
+        return err_cstring("null raw_tx pointer with non-zero len".into());
+    } else {
+        std::slice::from_raw_parts(raw_tx, raw_tx_len)
+    };
+    let nodes = match proof_node_slices(proof_node_ptrs, proof_node_lens, num_proof_nodes) {
+        Ok(n) => n,
+        Err(e) => return err_cstring(e.into()),
+    };
+    match eth_historian::inclusion::verify_transaction_inclusion(root, tx_index, raw, &nodes) {
+        Ok(()) => ptr::null_mut(),
+        Err(e) => err_cstring(format!("verifyTransactionInclusion: {}", e)),
+    }
+}
+
+/// Verify a receipt is in a block at `receipt_index`, against the
+/// authenticated `receipts_root` (32 bytes).
+///
+/// Returns null on success; on failure returns a Rust-allocated C
+/// string the caller MUST free via `eth_historian_free_error`.
+///
+/// # Safety
+///
+/// Same contract as [`eth_historian_verify_transaction_inclusion`].
+#[no_mangle]
+pub unsafe extern "C" fn eth_historian_verify_receipt_inclusion(
+    receipts_root: *const u8,
+    receipt_index: u64,
+    raw_receipt: *const u8,
+    raw_receipt_len: usize,
+    proof_node_ptrs: *const *const u8,
+    proof_node_lens: *const usize,
+    num_proof_nodes: usize,
+) -> *mut c_char {
+    let root = match read_root(receipts_root) {
+        Ok(r) => r,
+        Err(e) => return err_cstring(e.into()),
+    };
+    let raw = if raw_receipt_len == 0 {
+        &[][..]
+    } else if raw_receipt.is_null() {
+        return err_cstring("null raw_receipt pointer with non-zero len".into());
+    } else {
+        std::slice::from_raw_parts(raw_receipt, raw_receipt_len)
+    };
+    let nodes = match proof_node_slices(proof_node_ptrs, proof_node_lens, num_proof_nodes) {
+        Ok(n) => n,
+        Err(e) => return err_cstring(e.into()),
+    };
+    match eth_historian::inclusion::verify_receipt_inclusion(root, receipt_index, raw, &nodes) {
+        Ok(()) => ptr::null_mut(),
+        Err(e) => err_cstring(format!("verifyReceiptInclusion: {}", e)),
+    }
+}
+
 /// Write the SHA-256 fingerprints of the embedded canonized accumulator
 /// binaries into the two 32-byte caller-provided buffers. Useful for
 /// audit / pinning.

@@ -11,8 +11,8 @@
 //! bytes only; it is not trusted to verify them.
 
 use eth_historian::{HeaderWithProof, Verifier};
-use ssz::Decode;
 use serde::Serialize;
+use ssz::Decode;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
@@ -69,6 +69,70 @@ pub async fn verify_header_with_proof(bytes: Vec<u8>) -> Result<JsValue, JsError
 
     serde_wasm_bindgen::to_value(&out)
         .map_err(|e| JsError::new(&format!("serialization failed: {}", e)))
+}
+
+/// Verify a transaction is in a block at the given index, against an
+/// authenticated `transactionsRoot`.
+///
+/// Inputs:
+/// * `transactionsRoot` — 32-byte authenticated root from a `VerifiedBlock`.
+/// * `txIndex` — position of the transaction in the block.
+/// * `rawTx` — EIP-2718 wire-format bytes (legacy: RLP; typed: type-byte || RLP).
+/// * `proofNodes` — RLP-encoded MPT trie nodes from root down to the leaf,
+///   passed as a JS array of `Uint8Array`.
+///
+/// Throws on verification failure.
+#[wasm_bindgen(js_name = verifyTransactionInclusion)]
+pub fn verify_transaction_inclusion(
+    transactions_root: Vec<u8>,
+    tx_index: u64,
+    raw_tx: Vec<u8>,
+    proof_nodes: js_sys::Array,
+) -> Result<(), JsError> {
+    let root = parse_root(&transactions_root, "transactionsRoot")?;
+    let proof = parse_proof_nodes(&proof_nodes)?;
+    eth_historian::inclusion::verify_transaction_inclusion(root, tx_index, &raw_tx, &proof)
+        .map_err(|e| JsError::new(&format!("verifyTransactionInclusion: {}", e)))
+}
+
+/// Verify a receipt is in a block at the given index, against an
+/// authenticated `receiptsRoot`.
+///
+/// Inputs match [`verifyTransactionInclusion`] except the value is the
+/// receipt's wire-format bytes (legacy: RLP; typed: type-byte || RLP).
+///
+/// Throws on verification failure.
+#[wasm_bindgen(js_name = verifyReceiptInclusion)]
+pub fn verify_receipt_inclusion(
+    receipts_root: Vec<u8>,
+    receipt_index: u64,
+    raw_receipt: Vec<u8>,
+    proof_nodes: js_sys::Array,
+) -> Result<(), JsError> {
+    let root = parse_root(&receipts_root, "receiptsRoot")?;
+    let proof = parse_proof_nodes(&proof_nodes)?;
+    eth_historian::inclusion::verify_receipt_inclusion(root, receipt_index, &raw_receipt, &proof)
+        .map_err(|e| JsError::new(&format!("verifyReceiptInclusion: {}", e)))
+}
+
+fn parse_root(bytes: &[u8], field: &str) -> Result<alloy_primitives::B256, JsError> {
+    if bytes.len() != 32 {
+        return Err(JsError::new(&format!(
+            "{} must be 32 bytes, got {}",
+            field,
+            bytes.len()
+        )));
+    }
+    Ok(alloy_primitives::B256::from_slice(bytes))
+}
+
+fn parse_proof_nodes(array: &js_sys::Array) -> Result<Vec<Vec<u8>>, JsError> {
+    let mut out = Vec::with_capacity(array.length() as usize);
+    for value in array.iter() {
+        let bytes = js_sys::Uint8Array::new(&value).to_vec();
+        out.push(bytes);
+    }
+    Ok(out)
 }
 
 /// Returns the SHA-256 fingerprints of the embedded canonized accumulator

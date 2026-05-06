@@ -1,10 +1,10 @@
 # eth-historian
 
-> Trustless cryptographic authentication of historical Ethereum execution-layer blocks for off-chain consumers.
+> Trustless cryptographic authentication of historical Ethereum execution-layer blocks — and the receipts, transactions, and logs inside them — for off-chain consumers.
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
 
-Off-chain indexers, data pipelines, and AI agents that read historical Ethereum blocks have been stuck choosing between (a) trusting an archive RPC, (b) running their own archive node (terabytes), or (c) trusting an indexer's reputation/slashing. **eth-historian** is a fourth option: feed it raw block data from any source, get back a header that's been cryptographically verified against canonized commitments.
+Off-chain indexers, data pipelines, and AI agents that read historical Ethereum blocks have been stuck choosing between (a) trusting an archive RPC, (b) running their own archive node (terabytes), or (c) trusting an indexer's reputation/slashing. **eth-historian** is a fourth option: feed it raw block data from any source, get back a header that's been cryptographically verified against canonized commitments — then verify any specific receipt, transaction, or event log inside that block via Merkle Patricia Trie proofs against the authenticated roots.
 
 ## Why this exists
 
@@ -39,6 +39,13 @@ let verifier = Verifier::builder()
 let block = verifier.verify_block_by_number(10_000_835).await?;
 println!("state root: {:?}", block.header.state_root);
 println!("verified via: {:?}", block.auth_path);  // HistoricalHashes
+
+// Once authenticated, verify a specific receipt is in this block:
+// `raw_receipt` is wire-format bytes; `proof_nodes` is the MPT path
+// (both supplied by the caller, e.g. fetched alongside the receipt).
+block.verify_receipt_inclusion(receipt_index, &raw_receipt, &proof_nodes)?;
+let receipt = block.verify_and_decode_receipt(receipt_index, &raw_receipt, &proof_nodes)?;
+for log in receipt.logs() { /* iterate trustlessly */ }
 ```
 
 ### TypeScript / JavaScript
@@ -66,6 +73,18 @@ from eth_historian import verify_header_with_proof
 verified = await verify_header_with_proof(ssz_bytes)
 print(verified.state_root, 'via', verified.auth_path)
 ```
+
+## Inclusion verification
+
+Once a block is authenticated, its `transactions_root` and `receipts_root` are trustworthy. The [`inclusion`](https://docs.rs/eth-historian/latest/eth_historian/inclusion/) module turns those roots into one-call helpers for:
+
+* **`verify_transaction_inclusion(tx_index, raw_tx, proof)`** — bind the wire-format bytes to the authenticated `transactions_root`.
+* **`verify_receipt_inclusion(receipt_index, raw_receipt, proof)`** — bind a receipt to the authenticated `receipts_root`.
+* **`verify_and_decode_receipt(...)`** — same, plus return a typed [`alloy::consensus::ReceiptEnvelope`] so you can iterate logs trustlessly.
+
+The MPT proofs themselves are caller-supplied. Most Ethereum execution clients can produce them on demand (`debug_traceBlockByNumber`, `eth_getProof` for state, third-party proof services), or you can compute them locally from the full block body using `alloy-trie`.
+
+End result: any off-chain consumer can verify "this event happened on canonical Ethereum at block N" with a `(header, proof)` pair and a single library call — no archive node, no RPC trust, no separate MPT verifier to compose.
 
 ## What's authenticated against what
 
@@ -114,8 +133,9 @@ Post-Capella verification has standard sync-committee light-client trust — no 
 
 ## Status
 
-* **v0.1** (this release): Rust core, TS bindings (wasm-bindgen), Python bindings (PyO3), `ArchiveRpcSource` (pre-merge), `PortalSidecarSource` (all eras).
-* **v0.2** (planned): `Era1FileSource`, post-merge proof construction in `ArchiveRpcSource`, hosted epoch-accumulator data bundle, `Go` and `Swift` bindings if there's pull.
+* **v0.1**: Rust core, TS bindings (wasm-bindgen), Python bindings (PyO3), Go bindings (cgo), `ArchiveRpcSource` (pre-merge), `PortalSidecarSource` (all eras).
+* **v0.2** (this release): `inclusion` module — receipt / transaction / log inclusion verification against authenticated roots.
+* **v0.3** (planned): `Era1FileSource`, post-merge proof construction in `ArchiveRpcSource` (closes the trin-sidecar dependency for full era coverage), hosted epoch-accumulator data bundle, Swift bindings.
 
 ## Prior art
 

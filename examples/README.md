@@ -22,4 +22,4 @@ Default block is Uniswap V2's deployment (May 4, 2020), which demonstrates the p
 
 ## More examples on the way
 
-`v0.2` will add: archive-RPC + locally-constructed proofs (no Portal sidecar required), Era1 file source, multi-source fallback chain, post-Capella with a fresh `HistoricalSummaries` snapshot pulled from a beacon RPC.
+This release ships the full inclusion-verification + historical-block-authentication surface across all four post-merge forks. See the main repo README for a complete capability list.

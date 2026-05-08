@@ -16,7 +16,7 @@
 //! This source is a scaffold. The actual Era1 parsing depends on the
 //! published `e2store = "0.4"` crate's API surface. The wiring shape is
 //! correct (DataSource impl, file resolution); end-to-end Era1 reading
-//! is on the v0.2 roadmap.
+//! is tracked at https://github.com/willow-network/eth-historian/issues/13.
 
 use std::path::PathBuf;
 
@@ -42,7 +42,7 @@ impl Era1FileSource {
 impl DataSource for Era1FileSource {
     async fn fetch_header_with_proof_by_number(&self, _block_number: u64) -> Result<Vec<u8>> {
         Err(Error::DataSource(format!(
-            "Era1FileSource at {} — Era1 file reading is not yet implemented; tracked for v0.2",
+            "Era1FileSource at {} — Era1 file reading is not yet implemented; see https://github.com/willow-network/eth-historian/issues/13",
             self.root.display()
         )))
     }

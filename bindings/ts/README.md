@@ -35,7 +35,7 @@ console.log(fp.mergeMaccBinSha256);
 //   0xa2368bfa82a89a898b31dca6f37aa287918bd671bd74058912bc440c2288d791
 ```
 
-### Inclusion verification (v0.2)
+### Inclusion verification
 
 Once a block is authenticated, prove specific receipts or transactions are inside it via MPT proofs against the verified roots:
 

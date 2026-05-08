@@ -36,8 +36,7 @@ func main() {
 
     // 2. Verify cryptographically against the canonized accumulators.
     //    Pre-merge and merge→Capella work today; post-Capella requires
-    //    extending the binding to accept a HistoricalSummaries snapshot
-    //    (tracked as a v0.2 follow-up).
+    //    extending the binding to accept a HistoricalSummaries snapshot.
     verified, err := eth_historian.VerifyHeaderWithProof(sszBytes)
     if err != nil {
         log.Fatalf("verification failed: %v", err)
@@ -55,7 +54,7 @@ func main() {
 }
 ```
 
-### Inclusion verification (v0.2)
+### Inclusion verification
 
 Once a block is authenticated, prove specific receipts or transactions are inside it via MPT proofs against the verified roots:
 
@@ -85,7 +84,7 @@ The Go module currently builds against a locally-built Rust static library at `t
 * macOS arm64 + linux amd64 + windows amd64 are the typical first three
 * Use `goreleaser` or a GitHub Actions matrix to publish a tarball per platform
 
-This is a v0.2 packaging concern — for v0.1, contributors check out the repo and run `make test`.
+Pre-built distribution is a follow-up packaging task — for v0.1.0, contributors check out the repo and run `make test`.
 
 ## Trust model
 

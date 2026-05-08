@@ -42,7 +42,7 @@ EthHistorianVerifyResult eth_historian_verify_header_with_proof(
 void eth_historian_free_error(char* error);
 
 /*
- * Inclusion verification (v0.2). Both functions return NULL on success;
+ * Inclusion verification. Both functions return NULL on success;
  * on failure they return a malloc'd C string the caller MUST free via
  * eth_historian_free_error().
  *

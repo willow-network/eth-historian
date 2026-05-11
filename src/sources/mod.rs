@@ -55,4 +55,5 @@ pub mod beacon_rpc;
 pub use beacon_rpc::{BeaconDataProvider, BeaconRpcSource};
 
 // `era1` feature currently disabled — see `Cargo.toml` for details.
-// The scaffold is preserved at `src/sources/era1.rs` for v0.2.
+// The scaffold is preserved at `src/sources/era1.rs`; tracked at
+// https://github.com/willow-network/eth-historian/issues/13.

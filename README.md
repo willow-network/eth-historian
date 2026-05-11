@@ -102,9 +102,10 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full trust-model writeup, inc
 
 eth-historian doesn't fetch bytes itself; you plug in one or more `DataSource` impls. Built-ins:
 
-* **`ArchiveRpcSource`** — talks `eth_getBlockByNumber` to any Ethereum execution RPC, then constructs the canonized accumulator proof locally. Pre-merge only (post-merge proof construction is on the v0.2 roadmap).
+* **`ArchiveRpcSource`** — talks `eth_getBlockByNumber` to any Ethereum execution RPC, then constructs the canonized accumulator proof locally. Pre-merge proofs come from a configured `EpochProvider`; post-merge proofs (Bellatrix → Electra) come from a configured [`BeaconDataProvider`](#post-merge-operator-setup).
+* **`BeaconRpcSource`** — talks the standard Ethereum beacon-API to a (typically self-run) archive beacon node. Implements `BeaconDataProvider`. Required for post-merge `ArchiveRpcSource` proof construction.
 * **`PortalSidecarSource`** — talks `portal_legacyHistoryGetContent` to a separately-running `trin` sidecar. Covers all eras trin serves.
-* **`Era1FileSource`** — *scaffold; v0.2 — see [`Cargo.toml`](./Cargo.toml) for why disabled.*
+* **`Era1FileSource`** — *scaffold; tracked as [issue #13](https://github.com/willow-network/eth-historian/issues/13) — unblocked now that ethportal-api is no longer a transitive dep.*
 
 Multi-source fallback works automatically — register sources in priority order and the first one that returns valid bytes wins.
 
@@ -133,9 +134,14 @@ Post-Capella verification has standard sync-committee light-client trust — no 
 
 ## Status
 
-* **v0.1**: Rust core, TS bindings (wasm-bindgen), Python bindings (PyO3), Go bindings (cgo), `ArchiveRpcSource` (pre-merge), `PortalSidecarSource` (all eras).
-* **v0.2** (this release): `inclusion` module — receipt / transaction / log inclusion verification against authenticated roots.
-* **v0.3** (planned): `Era1FileSource`, post-merge proof construction in `ArchiveRpcSource` (closes the trin-sidecar dependency for full era coverage), hosted epoch-accumulator data bundle, Swift bindings.
+**v0.1.0** ships the full inclusion-verification + historical-block-authentication surface across all four post-merge forks:
+
+* **Rust core** — `Verifier`, `inclusion` module (receipt / transaction / log inclusion against authenticated roots), four authentication paths (HistoricalHashes / HistoricalRoots / HistoricalSummaries{Capella,Deneb}).
+* **Bindings** — TypeScript (wasm-bindgen), Python (PyO3), Go (cgo + cdylib).
+* **Data sources** — `ArchiveRpcSource` (full era range, pre-merge via `EpochProvider`, post-merge via `BeaconDataProvider`), `PortalSidecarSource`, `BeaconRpcSource`.
+* **End-to-end Merkle-path validation** against real mainnet `SignedBeaconBlock` fixtures across Bellatrix / Capella / Deneb / Electra.
+
+Filed for follow-ups: [`Era1FileSource`](https://github.com/willow-network/eth-historian/issues/13) re-enable, [HistoricalBatch caching](https://github.com/willow-network/eth-historian/issues/15), [Swift](https://github.com/willow-network/eth-historian/issues/5) and [React Hooks](https://github.com/willow-network/eth-historian/issues/14) bindings, [hosted epoch_accs bundle](https://github.com/willow-network/eth-historian/issues/6).
 
 ## Prior art
 

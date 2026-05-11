@@ -161,7 +161,7 @@ one snapshot in the `HistoricalSummariesProvider` and looks up the
 relevant index for each request. If your application verifies blocks
 across a wide time range, refresh the snapshot when it falls behind.
 
-## Inclusion verification (v0.2+)
+## Inclusion verification
 
 `VerifiedBlock` carries the authenticated `transactions_root` and
 `receipts_root`. The [`inclusion`](../src/inclusion.rs) module turns
@@ -190,7 +190,7 @@ the trie shape we generate matches `alloy::consensus::proofs::calculate_receipt_
 
 * **State roots.** `header.state_root` is authenticated, but resolving
   individual storage slots requires additional MPT proofs out of scope
-  here. (Could land in v0.3 — same pattern as receipt inclusion, but
+  here. (Could land in a future release — same pattern as receipt inclusion, but
   against the state trie which is significantly more complex.)
 * **Reorgs.** This crate authenticates that a block was *at some point*
   canonical (per the embedded accumulator or current beacon state). It

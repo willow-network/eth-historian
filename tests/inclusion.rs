@@ -20,7 +20,7 @@ use alloy_trie::{hash_builder::HashBuilder, proof::ProofRetainer, Nibbles};
 use eth_historian::{
     inclusion::{
         decode_receipt, verify_and_decode_receipt, verify_mpt_inclusion, verify_receipt_inclusion,
-        verify_transaction_inclusion,
+        verify_transaction_inclusion, DecodedReceipt,
     },
     AuthPath, VerifiedBlock,
 };
@@ -183,7 +183,7 @@ fn verify_and_decode_receipt_returns_typed_envelope() {
         .expect("verify+decode should succeed");
 
     match decoded {
-        ReceiptEnvelope::Legacy(r) => {
+        DecodedReceipt::Ethereum(ReceiptEnvelope::Legacy(r)) => {
             assert_eq!(r.receipt.cumulative_gas_used, 21_000);
             assert!(r.receipt.status.coerce_status());
             assert_eq!(r.receipt.logs.len(), 0);
@@ -247,7 +247,10 @@ fn verifiedblock_method_uses_authenticated_root() {
     let decoded = block
         .verify_and_decode_receipt(0, &r0, &receipt_proof)
         .expect("decode via VerifiedBlock");
-    assert!(matches!(decoded, ReceiptEnvelope::Legacy(_)));
+    assert!(matches!(
+        decoded,
+        DecodedReceipt::Ethereum(ReceiptEnvelope::Legacy(_))
+    ));
 }
 
 #[test]

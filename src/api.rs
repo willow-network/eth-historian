@@ -92,13 +92,14 @@ impl VerifiedBlock {
     }
 
     /// Verify a receipt's inclusion and decode it into a typed
-    /// [`alloy::consensus::ReceiptEnvelope`].
+    /// [`crate::inclusion::DecodedReceipt`] (Ethereum and Arbitrum-family
+    /// receipts).
     pub fn verify_and_decode_receipt(
         &self,
         receipt_index: u64,
         raw_receipt: &[u8],
         proof_nodes: &[impl AsRef<[u8]>],
-    ) -> Result<alloy::consensus::ReceiptEnvelope> {
+    ) -> Result<crate::inclusion::DecodedReceipt> {
         crate::inclusion::verify_and_decode_receipt(
             self.header.receipts_root,
             receipt_index,

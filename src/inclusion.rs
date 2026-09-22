@@ -36,9 +36,9 @@
 //! # fn fetch_receipt_proof() -> Vec<Vec<u8>> { unimplemented!() }
 //! ```
 
-use alloy::consensus::ReceiptEnvelope;
-use alloy::eips::eip2718::Decodable2718;
-use alloy::primitives::{Bytes, B256};
+use alloy::consensus::{Receipt, ReceiptEnvelope, ReceiptWithBloom};
+use alloy::eips::eip2718::{Decodable2718, Encodable2718};
+use alloy::primitives::{Bytes, Log, B256};
 use alloy_rlp::{Decodable, Encodable};
 use alloy_trie::{proof::verify_proof, Nibbles};
 
@@ -107,43 +107,143 @@ pub fn verify_receipt_inclusion(
     verify_mpt_inclusion(receipts_root, &key, raw_receipt, proof_nodes)
 }
 
+/// Arbitrum-family (Nitro / Orbit) EIP-2718 receipt types, inclusive range:
+/// 0x64 ArbitrumDeposit · 0x65 ArbitrumUnsigned · 0x66 ArbitrumContract ·
+/// 0x67 ArbitrumLegacy · 0x68 ArbitrumRetry · 0x69 ArbitrumSubmitRetryable ·
+/// 0x6A ArbitrumInternal (every Nitro block's receipt 0). Their receipt body
+/// is the standard 4-field `[status, cumulativeGasUsed, logsBloom, logs]`
+/// behind the type byte; only the tag is chain-specific.
+pub const ARBITRUM_TX_TYPE_MIN: u8 = 0x64;
+/// See [`ARBITRUM_TX_TYPE_MIN`].
+pub const ARBITRUM_TX_TYPE_MAX: u8 = 0x6A;
+
+/// A decoded wire-format receipt.
+///
+/// Ethereum receipts (legacy and EIP-2718 types 0x01..=0x04) decode into
+/// alloy's [`ReceiptEnvelope`]. Arbitrum-family receipts (types
+/// [`ARBITRUM_TX_TYPE_MIN`]..=[`ARBITRUM_TX_TYPE_MAX`]) have no alloy
+/// envelope variant, and are carried with their REAL type byte rather than
+/// smuggled through a body-identical Ethereum variant: a caller that asks
+/// [`DecodedReceipt::tx_type`] or re-encodes with
+/// [`DecodedReceipt::to_wire_bytes`] gets the truth, byte for byte.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DecodedReceipt {
+    /// Legacy or EIP-2718 type 0x01..=0x04.
+    Ethereum(ReceiptEnvelope),
+    /// EIP-2718 type 0x64..=0x6A (Arbitrum Nitro / Orbit chains).
+    Arbitrum {
+        /// The wire type byte, 0x64..=0x6A.
+        tx_type: u8,
+        /// The 4-field receipt body.
+        receipt: ReceiptWithBloom<Receipt<Log>>,
+    },
+}
+
+impl DecodedReceipt {
+    /// The receipt's logs, in emission order.
+    pub fn logs(&self) -> &[Log] {
+        match self {
+            Self::Ethereum(env) => env.logs(),
+            Self::Arbitrum { receipt, .. } => &receipt.receipt.logs,
+        }
+    }
+
+    /// The EIP-2718 type byte (`0x00` for legacy).
+    pub fn tx_type(&self) -> u8 {
+        match self {
+            Self::Ethereum(env) => env.tx_type() as u8,
+            Self::Arbitrum { tx_type, .. } => *tx_type,
+        }
+    }
+
+    /// Cumulative gas used, from the receipt body.
+    pub fn cumulative_gas_used(&self) -> u64 {
+        match self {
+            Self::Ethereum(env) => env.cumulative_gas_used(),
+            Self::Arbitrum { receipt, .. } => receipt.receipt.cumulative_gas_used,
+        }
+    }
+
+    /// The alloy envelope, for Ethereum receipts only.
+    pub fn as_envelope(&self) -> Option<&ReceiptEnvelope> {
+        match self {
+            Self::Ethereum(env) => Some(env),
+            Self::Arbitrum { .. } => None,
+        }
+    }
+
+    /// Re-encode to the exact wire bytes the receipts trie hashes
+    /// (`type || rlp(body)` for typed, `rlp(body)` for legacy). Round-trips
+    /// [`decode_receipt`] byte for byte for every admitted type.
+    pub fn to_wire_bytes(&self) -> Vec<u8> {
+        match self {
+            Self::Ethereum(env) => env.encoded_2718(),
+            Self::Arbitrum { tx_type, receipt } => {
+                let mut out = vec![*tx_type];
+                receipt.encode(&mut out);
+                out
+            }
+        }
+    }
+}
+
 /// Verify a receipt's inclusion and decode it into a typed
-/// [`ReceiptEnvelope`] (handling legacy / EIP-2930 / EIP-1559 / EIP-4844
-/// / EIP-7702 variants).
+/// [`DecodedReceipt`] (legacy / EIP-2930 / EIP-1559 / EIP-4844 / EIP-7702
+/// Ethereum receipts, and Arbitrum-family 0x64..=0x6A receipts).
 pub fn verify_and_decode_receipt(
     receipts_root: B256,
     receipt_index: u64,
     raw_receipt: &[u8],
     proof_nodes: &[impl AsRef<[u8]>],
-) -> Result<ReceiptEnvelope> {
+) -> Result<DecodedReceipt> {
     verify_receipt_inclusion(receipts_root, receipt_index, raw_receipt, proof_nodes)?;
     decode_receipt(receipt_index, raw_receipt)
 }
 
-/// Decode a wire-format receipt (handles both legacy and EIP-2718 typed).
-pub fn decode_receipt(receipt_index: u64, raw_receipt: &[u8]) -> Result<ReceiptEnvelope> {
+/// Decode a wire-format receipt: legacy, EIP-2718 typed 0x01..=0x04, or
+/// Arbitrum-family 0x64..=0x6A. Any other type tag in 0x00..=0x7f is refused
+/// with [`Error::ReceiptDecode`] naming the tag — never guessed.
+pub fn decode_receipt(receipt_index: u64, raw_receipt: &[u8]) -> Result<DecodedReceipt> {
     if raw_receipt.is_empty() {
         return Err(Error::ReceiptDecode {
             index: receipt_index,
             reason: "empty receipt bytes".into(),
         });
     }
+    let decode_err = |reason: String| Error::ReceiptDecode {
+        index: receipt_index,
+        reason,
+    };
 
     // EIP-2718: typed receipts start with a single-byte type tag in 0x00..0x7f.
     // Legacy receipts start with an RLP list header (0xc0..0xff).
     let mut buf: &[u8] = raw_receipt;
-    if raw_receipt[0] >= 0x80 {
+    match raw_receipt[0] {
         // Legacy. ReceiptEnvelope::decode handles plain RLP.
-        ReceiptEnvelope::decode(&mut buf).map_err(|e| Error::ReceiptDecode {
-            index: receipt_index,
-            reason: e.to_string(),
-        })
-    } else {
-        // Typed. Decode2718 expects the type byte + payload.
-        ReceiptEnvelope::decode_2718(&mut buf).map_err(|e| Error::ReceiptDecode {
-            index: receipt_index,
-            reason: e.to_string(),
-        })
+        0x80..=0xff => ReceiptEnvelope::decode(&mut buf)
+            .map(DecodedReceipt::Ethereum)
+            .map_err(|e| decode_err(e.to_string())),
+        // Arbitrum-family: the standard 4-field body behind the type byte.
+        tx_type @ ARBITRUM_TX_TYPE_MIN..=ARBITRUM_TX_TYPE_MAX => {
+            let mut body: &[u8] = &raw_receipt[1..];
+            let receipt: ReceiptWithBloom<Receipt<Log>> = Decodable::decode(&mut body)
+                .map_err(|e| decode_err(format!("arbitrum type 0x{tx_type:02x}: {e}")))?;
+            if !body.is_empty() {
+                return Err(decode_err(format!(
+                    "arbitrum type 0x{tx_type:02x}: {} trailing bytes after the receipt body",
+                    body.len()
+                )));
+            }
+            Ok(DecodedReceipt::Arbitrum { tx_type, receipt })
+        }
+        // Typed Ethereum. Decode2718 expects the type byte + payload.
+        0x00..=0x04 => ReceiptEnvelope::decode_2718(&mut buf)
+            .map(DecodedReceipt::Ethereum)
+            .map_err(|e| decode_err(e.to_string())),
+        other => Err(decode_err(format!(
+            "unsupported EIP-2718 receipt type 0x{other:02x} \
+             (admitted: 0x00-0x04 Ethereum, 0x64-0x6a Arbitrum)"
+        ))),
     }
 }
 

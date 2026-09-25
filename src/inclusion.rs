@@ -117,6 +117,12 @@ pub const ARBITRUM_TX_TYPE_MIN: u8 = 0x64;
 /// See [`ARBITRUM_TX_TYPE_MIN`].
 pub const ARBITRUM_TX_TYPE_MAX: u8 = 0x6A;
 
+/// The OP-stack deposit transaction type (Base, OP Mainnet, Unichain, Ink, every OP-stack
+/// chain; each block opens with one). A deposit receipt is `0x7E || rlp([status,
+/// cumulativeGasUsed, logsBloom, logs])` before Canyon and `0x7E || rlp([status,
+/// cumulativeGasUsed, logsBloom, logs, depositNonce, depositReceiptVersion])` from Canyon on.
+pub const OP_DEPOSIT_TX_TYPE: u8 = 0x7E;
+
 /// A decoded wire-format receipt.
 ///
 /// Ethereum receipts (legacy and EIP-2718 types 0x01..=0x04) decode into
@@ -137,6 +143,15 @@ pub enum DecodedReceipt {
         /// The 4-field receipt body.
         receipt: ReceiptWithBloom<Receipt<Log>>,
     },
+    /// EIP-2718 type 0x7E (OP-stack deposit).
+    OpDeposit {
+        /// The first four fields of the body.
+        receipt: ReceiptWithBloom<Receipt<Log>>,
+        /// `depositNonce` (post-Canyon; `None` on a pre-Canyon 4-field receipt).
+        deposit_nonce: Option<u64>,
+        /// `depositReceiptVersion` (post-Canyon, `Some(1)`; `None` pre-Canyon).
+        deposit_receipt_version: Option<u64>,
+    },
 }
 
 impl DecodedReceipt {
@@ -144,7 +159,9 @@ impl DecodedReceipt {
     pub fn logs(&self) -> &[Log] {
         match self {
             Self::Ethereum(env) => env.logs(),
-            Self::Arbitrum { receipt, .. } => &receipt.receipt.logs,
+            Self::Arbitrum { receipt, .. } | Self::OpDeposit { receipt, .. } => {
+                &receipt.receipt.logs
+            }
         }
     }
 
@@ -153,6 +170,7 @@ impl DecodedReceipt {
         match self {
             Self::Ethereum(env) => env.tx_type() as u8,
             Self::Arbitrum { tx_type, .. } => *tx_type,
+            Self::OpDeposit { .. } => OP_DEPOSIT_TX_TYPE,
         }
     }
 
@@ -160,7 +178,9 @@ impl DecodedReceipt {
     pub fn cumulative_gas_used(&self) -> u64 {
         match self {
             Self::Ethereum(env) => env.cumulative_gas_used(),
-            Self::Arbitrum { receipt, .. } => receipt.receipt.cumulative_gas_used,
+            Self::Arbitrum { receipt, .. } | Self::OpDeposit { receipt, .. } => {
+                receipt.receipt.cumulative_gas_used
+            }
         }
     }
 
@@ -168,7 +188,7 @@ impl DecodedReceipt {
     pub fn as_envelope(&self) -> Option<&ReceiptEnvelope> {
         match self {
             Self::Ethereum(env) => Some(env),
-            Self::Arbitrum { .. } => None,
+            Self::Arbitrum { .. } | Self::OpDeposit { .. } => None,
         }
     }
 
@@ -181,6 +201,30 @@ impl DecodedReceipt {
             Self::Arbitrum { tx_type, receipt } => {
                 let mut out = vec![*tx_type];
                 receipt.encode(&mut out);
+                out
+            }
+            Self::OpDeposit {
+                receipt,
+                deposit_nonce,
+                deposit_receipt_version,
+            } => {
+                let r = &receipt.receipt;
+                let mut payload = Vec::new();
+                r.status.encode(&mut payload);
+                r.cumulative_gas_used.encode(&mut payload);
+                receipt.logs_bloom.encode(&mut payload);
+                r.logs.encode(&mut payload);
+                if let (Some(n), Some(v)) = (deposit_nonce, deposit_receipt_version) {
+                    n.encode(&mut payload);
+                    v.encode(&mut payload);
+                }
+                let mut out = vec![OP_DEPOSIT_TX_TYPE];
+                alloy_rlp::Header {
+                    list: true,
+                    payload_length: payload.len(),
+                }
+                .encode(&mut out);
+                out.extend_from_slice(&payload);
                 out
             }
         }
@@ -236,15 +280,64 @@ pub fn decode_receipt(receipt_index: u64, raw_receipt: &[u8]) -> Result<DecodedR
             }
             Ok(DecodedReceipt::Arbitrum { tx_type, receipt })
         }
+        // OP-stack deposit: the 4 standard fields, then (post-Canyon) nonce + version.
+        OP_DEPOSIT_TX_TYPE => decode_op_deposit(&raw_receipt[1..]).map_err(decode_err),
         // Typed Ethereum. Decode2718 expects the type byte + payload.
         0x00..=0x04 => ReceiptEnvelope::decode_2718(&mut buf)
             .map(DecodedReceipt::Ethereum)
             .map_err(|e| decode_err(e.to_string())),
         other => Err(decode_err(format!(
             "unsupported EIP-2718 receipt type 0x{other:02x} \
-             (admitted: 0x00-0x04 Ethereum, 0x64-0x6a Arbitrum)"
+             (admitted: 0x00-0x04 Ethereum, 0x64-0x6a Arbitrum, 0x7e OP-stack deposit)"
         ))),
     }
+}
+
+/// The body of an OP-stack deposit receipt (after the 0x7E byte). Exactly 4 or 6 list items;
+/// anything else, or trailing bytes inside or after the list, is refused.
+fn decode_op_deposit(body: &[u8]) -> std::result::Result<DecodedReceipt, String> {
+    let e = |what: &str, err: alloy_rlp::Error| format!("op deposit 0x7e: {what}: {err}");
+    let mut buf = body;
+    let h = alloy_rlp::Header::decode(&mut buf).map_err(|x| e("list header", x))?;
+    if !h.list {
+        return Err("op deposit 0x7e: body is not an RLP list".into());
+    }
+    if buf.len() != h.payload_length {
+        return Err(format!(
+            "op deposit 0x7e: {} trailing bytes after the receipt body",
+            buf.len().abs_diff(h.payload_length)
+        ));
+    }
+    let mut p = buf;
+    let status = alloy::consensus::Eip658Value::decode(&mut p).map_err(|x| e("status", x))?;
+    let cumulative_gas_used = u64::decode(&mut p).map_err(|x| e("cumulativeGasUsed", x))?;
+    let logs_bloom = alloy::primitives::Bloom::decode(&mut p).map_err(|x| e("logsBloom", x))?;
+    let logs = Vec::<Log>::decode(&mut p).map_err(|x| e("logs", x))?;
+    let (deposit_nonce, deposit_receipt_version) = if p.is_empty() {
+        (None, None)
+    } else {
+        let n = u64::decode(&mut p).map_err(|x| e("depositNonce", x))?;
+        let v = u64::decode(&mut p).map_err(|x| e("depositReceiptVersion", x))?;
+        (Some(n), Some(v))
+    };
+    if !p.is_empty() {
+        return Err(format!(
+            "op deposit 0x7e: {} unexpected bytes after the receipt's fields",
+            p.len()
+        ));
+    }
+    Ok(DecodedReceipt::OpDeposit {
+        receipt: ReceiptWithBloom {
+            receipt: Receipt {
+                status,
+                cumulative_gas_used,
+                logs,
+            },
+            logs_bloom,
+        },
+        deposit_nonce,
+        deposit_receipt_version,
+    })
 }
 
 // Ethereum trie keys for the transaction/receipt tries are RLP-encoded

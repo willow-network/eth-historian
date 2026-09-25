@@ -74,7 +74,9 @@ fn arbitrum_receipts_decode_with_their_real_type_and_round_trip_byte_for_byte() 
                 assert_eq!(tx_type, *ty);
                 assert!(receipt.receipt.status.coerce_status());
             }
-            DecodedReceipt::Ethereum(_) => panic!("receipt {i}: must be the Arbitrum variant"),
+            DecodedReceipt::Ethereum(_) | DecodedReceipt::OpDeposit { .. } => {
+                panic!("receipt {i}: must be the Arbitrum variant")
+            }
         }
     }
     // The SubmitRetryable's two logs come from the ArbRetryableTx precompile (0x…6e).
@@ -131,7 +133,9 @@ fn arbitrum_receipts_verify_inclusion_against_the_real_root() {
 #[test]
 fn unknown_types_and_trailing_bytes_are_refused_by_name() {
     let raw = values()[0].clone();
-    for bad in [0x05u8, 0x63, 0x6b, 0x70, 0x7e, 0x7f] {
+    // 0x7e is the OP-stack deposit type, admitted since the OP-deposit arm (a 4-field body
+    // behind it decodes as a pre-Canyon deposit), so it is no longer in the refused set.
+    for bad in [0x05u8, 0x63, 0x6b, 0x70, 0x7f] {
         let mut v = raw.clone();
         v[0] = bad;
         let e = decode_receipt(0, &v)

@@ -238,11 +238,16 @@ impl Verifier {
         for source in &self.data_sources {
             match source.fetch_header_with_proof_by_number(block_number).await {
                 Ok(bytes) => {
-                    let hwp =
-                        HeaderWithProof::from_ssz_bytes(&bytes).map_err(|e| Error::SszDecode {
-                            block: block_number,
-                            reason: format!("{:?}", e),
-                        })?;
+                    let hwp = match HeaderWithProof::from_ssz_bytes(&bytes) {
+                        Ok(hwp) => hwp,
+                        Err(e) => {
+                            last_err = Some(Error::SszDecode {
+                                block: block_number,
+                                reason: format!("{:?}", e),
+                            });
+                            continue;
+                        }
+                    };
                     if hwp.header.number != block_number {
                         last_err = Some(Error::BlockNumberMismatch {
                             expected: block_number,
@@ -250,7 +255,10 @@ impl Verifier {
                         });
                         continue;
                     }
-                    return self.verify(&hwp).await;
+                    match self.verify(&hwp).await {
+                        Ok(verified) => return Ok(verified),
+                        Err(e) => last_err = Some(e),
+                    }
                 }
                 Err(e) => {
                     last_err = Some(e);
@@ -274,11 +282,16 @@ impl Verifier {
         for source in &self.data_sources {
             match source.fetch_header_with_proof_by_hash(block_hash.0).await {
                 Ok(bytes) => {
-                    let hwp =
-                        HeaderWithProof::from_ssz_bytes(&bytes).map_err(|e| Error::SszDecode {
-                            block: 0,
-                            reason: format!("{:?}", e),
-                        })?;
+                    let hwp = match HeaderWithProof::from_ssz_bytes(&bytes) {
+                        Ok(hwp) => hwp,
+                        Err(e) => {
+                            last_err = Some(Error::SszDecode {
+                                block: 0,
+                                reason: format!("{:?}", e),
+                            });
+                            continue;
+                        }
+                    };
                     if hwp.header.hash_slow() != block_hash {
                         last_err = Some(Error::VerificationFailed {
                             block: hwp.header.number,
@@ -286,7 +299,10 @@ impl Verifier {
                         });
                         continue;
                     }
-                    return self.verify(&hwp).await;
+                    match self.verify(&hwp).await {
+                        Ok(verified) => return Ok(verified),
+                        Err(e) => last_err = Some(e),
+                    }
                 }
                 Err(e) => {
                     last_err = Some(e);

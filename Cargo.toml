@@ -80,3 +80,8 @@ wiremock = "0.6"
 [lints.clippy]
 too_many_arguments = "allow"
 type_complexity = "allow"
+# False positive on `#[async_trait]` trait methods since Rust 1.99: the
+# macro adds `#[must_use]` to a method that returns a boxed future. Fixed
+# upstream (https://github.com/rust-lang/rust-clippy/issues/17529); drop
+# this once the fix reaches stable.
+double_must_use = "allow"

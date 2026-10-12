@@ -260,15 +260,23 @@ impl HeaderValidator {
         let block_root_index = slot % SLOTS_PER_HISTORICAL_ROOT;
         let gen_index = 2 * SLOTS_PER_HISTORICAL_ROOT + block_root_index;
         let historical_root_index = slot / SLOTS_PER_HISTORICAL_ROOT;
-        let historical_root =
-            self.historical_roots_acc.historical_roots[historical_root_index as usize];
+        let Ok(historical_root_index) = usize::try_from(historical_root_index) else {
+            return false;
+        };
+        let Some(historical_root) = self
+            .historical_roots_acc
+            .historical_roots
+            .get(historical_root_index)
+        else {
+            return false;
+        };
 
         verify_merkle_proof(
             beacon_block_root,
             beacon_block_proof,
             14,
             gen_index as usize,
-            historical_root,
+            *historical_root,
         )
     }
 

@@ -95,6 +95,24 @@ async fn merge_to_capella_real_block_15539558_verifies() {
 }
 
 #[tokio::test]
+async fn merge_to_capella_out_of_range_historical_roots_slot_is_rejected() {
+    let bytes = decode_fixture(FIXTURE_MERGE_CAPELLA_1);
+    let mut hwp = HeaderWithProof::from_ssz_bytes(&bytes)
+        .expect("portal-spec-tests fixture should SSZ-decode");
+
+    let BlockHeaderProof::HistoricalRoots(proof) = &mut hwp.proof else {
+        panic!("fixture should use the HistoricalRoots proof path");
+    };
+    proof.slot = u64::MAX;
+
+    let result = Verifier::new().verify(&hwp).await;
+    assert!(
+        result.is_err(),
+        "an out-of-range HistoricalRoots slot should return a verification error"
+    );
+}
+
+#[tokio::test]
 async fn merge_to_capella_real_block_15555729_verifies() {
     let bytes = decode_fixture(FIXTURE_MERGE_CAPELLA_2);
     let hwp = HeaderWithProof::from_ssz_bytes(&bytes)
